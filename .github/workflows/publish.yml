@@ -1,0 +1,64 @@
+name: Publish
+
+# HARD RULE: never publish manually. Bump the version in VERSION, push to
+# main, and this workflow tags the commit and warms the Go module proxy.
+# Go has no central registry — proxy.golang.org caches the tagged commit
+# on first `go get`.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # to push tags
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - run: go test ./...
+
+      - name: Read VERSION
+        id: ver
+        run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Tag if new
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ steps.ver.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, nothing to do."
+            echo "tagged=0" >> "$GITHUB_OUTPUT"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+            echo "tagged=1" >> "$GITHUB_OUTPUT"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Warm Go module proxy
+        if: steps.tag.outputs.tagged == '1'
+        env:
+          GOPROXY: proxy.golang.org
+        run: |
+          for i in 1 2 3 4 5; do
+            if go list -m github.com/shipeasy-ai/sdk-go@${{ steps.tag.outputs.tag }}; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::warning::proxy did not pick up the tag in 50s; it will resolve on first user fetch"
