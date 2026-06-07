@@ -28,12 +28,19 @@ type Client struct {
 	stop         chan struct{}
 	once         sync.Once
 	initialized  bool
+	telemetry    *telemetry
 }
 
 type Options struct {
 	APIKey  string
 	BaseURL string
 	HTTP    *http.Client
+	// Env is the published env reported in usage telemetry (defaults to "prod").
+	Env string
+	// DisableTelemetry turns off per-evaluation usage beacons (ON by default).
+	DisableTelemetry bool
+	// TelemetryURL overrides the beacon host (defaults to defaultTelemetryURL).
+	TelemetryURL string
 }
 
 func NewClient(opts Options) *Client {
@@ -45,12 +52,21 @@ func NewClient(opts Options) *Client {
 	if hc == nil {
 		hc = &http.Client{Timeout: 10 * time.Second}
 	}
+	env := opts.Env
+	if env == "" {
+		env = "prod"
+	}
+	telemetryURL := opts.TelemetryURL
+	if telemetryURL == "" {
+		telemetryURL = defaultTelemetryURL
+	}
 	return &Client{
 		apiKey:       opts.APIKey,
 		baseURL:      base,
 		http:         hc,
 		pollInterval: 30 * time.Second,
 		stop:         make(chan struct{}),
+		telemetry:    newTelemetry(telemetryURL, opts.APIKey, "server", env, opts.DisableTelemetry, hc),
 	}
 }
 
@@ -79,6 +95,7 @@ func (c *Client) Destroy() {
 }
 
 func (c *Client) GetFlag(name string, user User) bool {
+	c.telemetry.emit("gate", name)
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if c.flags == nil {
@@ -92,6 +109,7 @@ func (c *Client) GetFlag(name string, user User) bool {
 }
 
 func (c *Client) GetConfig(name string) (any, bool) {
+	c.telemetry.emit("config", name)
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if c.flags == nil {
@@ -105,6 +123,7 @@ func (c *Client) GetConfig(name string) (any, bool) {
 }
 
 func (c *Client) GetExperiment(name string, user User, defaultParams any) ExperimentResult {
+	c.telemetry.emit("experiment", name)
 	c.mu.RLock()
 	flags := c.flags
 	exps := c.exps
