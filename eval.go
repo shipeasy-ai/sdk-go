@@ -190,7 +190,12 @@ func evalGate(g gate, u User) bool {
 	}
 	uid := userID(u)
 	if uid == "" {
-		return false
+		// No unit id (an unidentified request before any anon id is minted): a
+		// fully-rolled gate is on for everyone, so it can be answered without
+		// bucketing; a fractional rollout genuinely needs a stable unit, so deny
+		// until one exists. Rules above are still checked, so targeting wins.
+		// See experiment-platform/18-identity-bucketing.md.
+		return g.RolloutPct >= 10000
 	}
 	return Murmur3(g.Salt+":"+uid)%10000 < uint32(g.RolloutPct)
 }
