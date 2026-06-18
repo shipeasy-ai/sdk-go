@@ -29,6 +29,15 @@ type Client struct {
 	once         sync.Once
 	initialized  bool
 	telemetry    *telemetry
+
+	// localMode is set by NewTestClient: Init/InitOnce never fetch and Track
+	// is a no-op, so the client does zero network and is usable immediately.
+	localMode bool
+	// Local overrides win over fetched data in the getters. Guarded by mu
+	// (the same RWMutex that protects flags/exps).
+	flagOverrides   map[string]bool
+	configOverrides map[string]any
+	expOverrides    map[string]ExperimentResult
 }
 
 type Options struct {
@@ -71,6 +80,9 @@ func NewClient(opts Options) *Client {
 }
 
 func (c *Client) Init(ctx context.Context) error {
+	if c.localMode {
+		return nil
+	}
 	if err := c.fetchAll(ctx); err != nil {
 		return err
 	}
@@ -80,7 +92,7 @@ func (c *Client) Init(ctx context.Context) error {
 }
 
 func (c *Client) InitOnce(ctx context.Context) error {
-	if c.initialized {
+	if c.localMode || c.initialized {
 		return nil
 	}
 	if err := c.fetchAll(ctx); err != nil {
@@ -98,6 +110,9 @@ func (c *Client) GetFlag(name string, user User) bool {
 	c.telemetry.emit("gate", name)
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	if v, ok := c.flagOverrides[name]; ok {
+		return v
+	}
 	if c.flags == nil {
 		return false
 	}
@@ -112,6 +127,9 @@ func (c *Client) GetConfig(name string) (any, bool) {
 	c.telemetry.emit("config", name)
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	if v, ok := c.configOverrides[name]; ok {
+		return v, true
+	}
 	if c.flags == nil {
 		return nil, false
 	}
@@ -125,6 +143,13 @@ func (c *Client) GetConfig(name string) (any, bool) {
 func (c *Client) GetExperiment(name string, user User, defaultParams any) ExperimentResult {
 	c.telemetry.emit("experiment", name)
 	c.mu.RLock()
+	if r, ok := c.expOverrides[name]; ok {
+		c.mu.RUnlock()
+		if r.Params == nil {
+			r.Params = defaultParams
+		}
+		return r
+	}
 	flags := c.flags
 	exps := c.exps
 	c.mu.RUnlock()
@@ -142,6 +167,9 @@ func (c *Client) GetExperiment(name string, user User, defaultParams any) Experi
 }
 
 func (c *Client) Track(userID, eventName string, properties map[string]any) {
+	if c.localMode {
+		return
+	}
 	event := map[string]any{
 		"type":       "metric",
 		"event_name": eventName,

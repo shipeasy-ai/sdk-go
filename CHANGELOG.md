@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Local-override test utility.** Added `shipeasy.NewTestClient()`, a
+  no-network, immediately-usable client (telemetry disabled, `Init`/`InitOnce`
+  no-op, `Track` no-op, no API key required) for unit tests. New override
+  setters `OverrideFlag`, `OverrideConfig`, `OverrideExperiment`, and
+  `ClearOverrides` (also usable on a normal client) let tests seed every entity;
+  an override always wins over fetched data in `GetFlag`/`GetConfig`/
+  `GetExperiment`. See the README "Testing" section.
+
 ## 0.3.0
 
 - **Anonymous bucketing (`__se_anon_id`).** Added `shipeasy.Middleware`, a
