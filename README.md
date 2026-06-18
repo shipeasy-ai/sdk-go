@@ -52,6 +52,75 @@ fully-rolled (100%) gate as on; only fractional gates need the id. The cookie
 name and format are a cross-SDK contract; see
 [`18-identity-bucketing.md`](https://github.com/shipeasy-ai/experiment-platform/blob/main/18-identity-bucketing.md).
 
+## Default values
+
+Go has no default arguments, so the SDK ships `…Or` variants that take an
+explicit fallback. The fallback is returned only when the flag/config **cannot
+be evaluated** — never when it evaluates to `false`:
+
+```go
+// def is returned ONLY when the flag can't be evaluated (client not ready, or
+// the gate is absent). A gate that evaluates to false returns false, not def.
+on := c.GetFlagOr("new_checkout", user, true)
+
+// def is returned when the config key is absent. GetConfig stays (value, ok).
+copy := c.GetConfigOr("billing_copy", map[string]any{"cta": "Buy"})
+```
+
+## Evaluation detail
+
+`GetFlagDetail` returns the value plus a stable, exported reason explaining how
+it was reached:
+
+```go
+d := c.GetFlagDetail("new_checkout", user)
+// d.Value  bool
+// d.Reason one of:
+//   shipeasy.ReasonOverride       "OVERRIDE"          (a local Override* won)
+//   shipeasy.ReasonClientNotReady "CLIENT_NOT_READY"  (Init not done; value=false)
+//   shipeasy.ReasonFlagNotFound   "FLAG_NOT_FOUND"    (no such gate; value=false)
+//   shipeasy.ReasonOff            "OFF"               (gate disabled/killswitched)
+//   shipeasy.ReasonRuleMatch      "RULE_MATCH"        (evaluated true)
+//   shipeasy.ReasonDefault        "DEFAULT"           (evaluated false)
+```
+
+`GetFlag` is `GetFlagDetail(...).Value`, and `GetFlagOr` returns `def` exactly
+when the reason is `CLIENT_NOT_READY` or `FLAG_NOT_FOUND`.
+
+## Change listeners
+
+Register a callback that fires after a background poll loads **new** data (a
+`200`, not a `304`). It returns a `cancel` func that deregisters the listener:
+
+```go
+cancel := c.OnChange(func() {
+    log.Println("flags/experiments changed; re-render or warm caches")
+})
+defer cancel()
+```
+
+Listeners run after the poll updates the blobs; a panicking listener is
+recovered and logged so it can't take down the poll loop. Test clients
+(`NewTestClient`, offline clients) never poll, so they never fire listeners.
+
+## Offline snapshot
+
+Run evaluations against a captured snapshot of the edge blobs with **zero
+network** — no key, no polling, no telemetry. The snapshot is JSON of the shape
+`{ "flags": <body of /sdk/flags>, "experiments": <body of /sdk/experiments> }`:
+
+```go
+// From a file:
+c, err := shipeasy.NewOfflineClient("shipeasy-snapshot.json")
+
+// Or from in-memory blobs (e.g. fetched earlier and cached):
+c := shipeasy.NewOfflineClientFromSnapshot(flagsBody, experimentsBody)
+
+// Init/InitOnce/Track are no-ops; evaluations run the real evaluator against the
+// snapshot, and Override* setters apply on top:
+on := c.GetFlag("new_checkout", shipeasy.User{"user_id": "u_123"})
+```
+
 ## Testing
 
 In tests you usually don't want a live edge or a real API key. `NewTestClient`

@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **Default values.** Added `GetFlagOr(name, user, def) bool` and
+  `GetConfigOr(name, def) any`. The fallback is returned only when the
+  flag/config *cannot* be evaluated (client not ready, or the gate/config is
+  absent) — never when a gate evaluates to `false`. `GetConfig` is unchanged
+  (`(any, bool)`).
+- **Evaluation detail.** Added `GetFlagDetail(name, user) FlagDetail` (`Value`,
+  `Reason`) and the exported reason constants `ReasonOverride`,
+  `ReasonClientNotReady`, `ReasonFlagNotFound`, `ReasonOff`, `ReasonRuleMatch`,
+  `ReasonDefault`. Reasons are computed at the boundary without touching the
+  canonical evaluator; the per-evaluation "gate" telemetry beacon fires exactly
+  once (never on an override). `GetFlag` now delegates to `GetFlagDetail`.
+- **Change listeners.** Added `OnChange(fn) (cancel func())`. Registered
+  listeners fire after a background poll loads new data (a `200`, not a `304`);
+  a panicking listener is recovered and logged. Test/offline clients never
+  poll, so they never fire.
+- **Offline file data source.** Added `NewOfflineClient(path)` and
+  `NewOfflineClientFromSnapshot(flags, experiments)`. Both build a no-network
+  client preloaded from a `{ "flags": …, "experiments": … }` snapshot;
+  `Init`/`InitOnce`/`Track` are no-ops, evaluations run the real evaluator
+  against the snapshot, and `Override*` setters apply on top.
 - **Local-override test utility.** Added `shipeasy.NewTestClient()`, a
   no-network, immediately-usable client (telemetry disabled, `Init`/`InitOnce`
   no-op, `Track` no-op, no API key required) for unit tests. New override

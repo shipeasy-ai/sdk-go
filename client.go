@@ -38,6 +38,11 @@ type Client struct {
 	flagOverrides   map[string]bool
 	configOverrides map[string]any
 	expOverrides    map[string]ExperimentResult
+
+	// changeListeners fire after a background poll fetches NEW data (a 200, not
+	// a 304). Guarded by mu. Never fired in localMode.
+	changeListeners map[int]func()
+	nextListenerID  int
 }
 
 type Options struct {
@@ -83,7 +88,7 @@ func (c *Client) Init(ctx context.Context) error {
 	if c.localMode {
 		return nil
 	}
-	if err := c.fetchAll(ctx); err != nil {
+	if _, err := c.fetchAll(ctx); err != nil {
 		return err
 	}
 	c.initialized = true
@@ -95,7 +100,7 @@ func (c *Client) InitOnce(ctx context.Context) error {
 	if c.localMode || c.initialized {
 		return nil
 	}
-	if err := c.fetchAll(ctx); err != nil {
+	if _, err := c.fetchAll(ctx); err != nil {
 		return err
 	}
 	c.initialized = true
@@ -106,21 +111,97 @@ func (c *Client) Destroy() {
 	c.once.Do(func() { close(c.stop) })
 }
 
-func (c *Client) GetFlag(name string, user User) bool {
-	c.telemetry.emit("gate", name)
+// Exported evaluation reasons returned in FlagDetail.Reason. They explain why
+// GetFlagDetail produced its value without exposing the canonical evaluator.
+const (
+	// ReasonClientNotReady means Init/InitOnce has not completed, so no flag
+	// blob is available yet. Value is false.
+	ReasonClientNotReady = "CLIENT_NOT_READY"
+	// ReasonFlagNotFound means the gate is absent from the loaded blob. Value is
+	// false.
+	ReasonFlagNotFound = "FLAG_NOT_FOUND"
+	// ReasonOff means the gate exists but is disabled (or killswitched). Value is
+	// false.
+	ReasonOff = "OFF"
+	// ReasonOverride means a local override (OverrideFlag) supplied the value,
+	// short-circuiting evaluation and telemetry.
+	ReasonOverride = "OVERRIDE"
+	// ReasonRuleMatch means the gate evaluated to true for this user.
+	ReasonRuleMatch = "RULE_MATCH"
+	// ReasonDefault means the gate evaluated to false for this user (rules did
+	// not match, or the user fell outside the rollout).
+	ReasonDefault = "DEFAULT"
+)
+
+// FlagDetail is the result of GetFlagDetail: the boolean value plus a stable,
+// exported reason explaining how it was reached.
+type FlagDetail struct {
+	Value  bool
+	Reason string
+}
+
+// GetFlagDetail evaluates a flag and reports why. The reason is computed at the
+// boundary without touching the canonical evaluator. Telemetry for the "gate"
+// resource is emitted exactly once here for steps 2-5, and never for an
+// OVERRIDE (which short-circuits before telemetry, matching GetFlag's override
+// path).
+func (c *Client) GetFlagDetail(name string, user User) FlagDetail {
+	// 1. Override wins, short-circuit before telemetry.
 	c.mu.RLock()
-	defer c.mu.RUnlock()
 	if v, ok := c.flagOverrides[name]; ok {
+		c.mu.RUnlock()
+		return FlagDetail{Value: v, Reason: ReasonOverride}
+	}
+	flags := c.flags
+	initialized := c.initialized
+	c.mu.RUnlock()
+
+	c.telemetry.emit("gate", name)
+
+	// 2. Not initialized / no blob loaded yet.
+	if !initialized || flags == nil {
+		return FlagDetail{Value: false, Reason: ReasonClientNotReady}
+	}
+	// 3. Gate not present in the blob.
+	g, ok := flags.Gates[name]
+	if !ok {
+		return FlagDetail{Value: false, Reason: ReasonFlagNotFound}
+	}
+	// 4. Gate present but disabled (killswitched or not enabled). These are the
+	// same fields evalGate short-circuits on, so reading them here is faithful.
+	if enabled(g.Killswitch) || !enabled(g.Enabled) {
+		return FlagDetail{Value: false, Reason: ReasonOff}
+	}
+	// 5. Run the canonical evaluator.
+	v := evalGate(g, user)
+	if v {
+		return FlagDetail{Value: true, Reason: ReasonRuleMatch}
+	}
+	return FlagDetail{Value: false, Reason: ReasonDefault}
+}
+
+func (c *Client) GetFlag(name string, user User) bool {
+	return c.GetFlagDetail(name, user).Value
+}
+
+// GetFlagOr returns def only when the flag CANNOT be evaluated — the client is
+// not initialized (CLIENT_NOT_READY) or the gate is absent (FLAG_NOT_FOUND).
+// When the flag evaluates (including to false), the evaluated value is returned.
+func (c *Client) GetFlagOr(name string, user User, def bool) bool {
+	d := c.GetFlagDetail(name, user)
+	if d.Reason == ReasonClientNotReady || d.Reason == ReasonFlagNotFound {
+		return def
+	}
+	return d.Value
+}
+
+// GetConfigOr returns the config value, or def when the config key is absent.
+// GetConfig remains the (value, ok) form.
+func (c *Client) GetConfigOr(name string, def any) any {
+	if v, ok := c.GetConfig(name); ok {
 		return v
 	}
-	if c.flags == nil {
-		return false
-	}
-	g, ok := c.flags.Gates[name]
-	if !ok {
-		return false
-	}
-	return evalGate(g, user)
+	return def
 }
 
 func (c *Client) GetConfig(name string) (any, bool) {
@@ -190,6 +271,46 @@ func (c *Client) Track(userID, eventName string, properties map[string]any) {
 	}()
 }
 
+// OnChange registers a listener fired after a background poll loads NEW data (a
+// 200 response, not a 304). It returns a cancel function that deregisters the
+// listener. Listeners never fire in localMode (no polling happens there).
+func (c *Client) OnChange(fn func()) (cancel func()) {
+	c.mu.Lock()
+	if c.changeListeners == nil {
+		c.changeListeners = map[int]func(){}
+	}
+	id := c.nextListenerID
+	c.nextListenerID++
+	c.changeListeners[id] = fn
+	c.mu.Unlock()
+	return func() {
+		c.mu.Lock()
+		delete(c.changeListeners, id)
+		c.mu.Unlock()
+	}
+}
+
+// fireListeners invokes every registered change listener, recovering from any
+// panic so one bad listener can't take down the poll goroutine.
+func (c *Client) fireListeners() {
+	c.mu.RLock()
+	fns := make([]func(), 0, len(c.changeListeners))
+	for _, fn := range c.changeListeners {
+		fns = append(fns, fn)
+	}
+	c.mu.RUnlock()
+	for _, fn := range fns {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[shipeasy] change listener panicked: %v", r)
+				}
+			}()
+			fn()
+		}()
+	}
+}
+
 func (c *Client) pollLoop() {
 	for {
 		select {
@@ -197,32 +318,42 @@ func (c *Client) pollLoop() {
 			return
 		case <-time.After(c.pollInterval):
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			if err := c.fetchAll(ctx); err != nil {
-				log.Printf("[shipeasy] poll failed: %v", err)
-			}
+			changed, err := c.fetchAll(ctx)
 			cancel()
+			if err != nil {
+				log.Printf("[shipeasy] poll failed: %v", err)
+				continue
+			}
+			if changed && !c.localMode {
+				c.fireListeners()
+			}
 		}
 	}
 }
 
-func (c *Client) fetchAll(ctx context.Context) error {
-	interval, err := c.fetchFlags(ctx)
+// fetchAll fetches both blobs and reports whether either returned NEW data (a
+// 200, not a 304).
+func (c *Client) fetchAll(ctx context.Context) (bool, error) {
+	interval, flagsChanged, err := c.fetchFlags(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if err := c.fetchExps(ctx); err != nil {
-		return err
+	expsChanged, err := c.fetchExps(ctx)
+	if err != nil {
+		return false, err
 	}
 	if interval > 0 && time.Duration(interval)*time.Second != c.pollInterval {
 		c.pollInterval = time.Duration(interval) * time.Second
 	}
-	return nil
+	return flagsChanged || expsChanged, nil
 }
 
-func (c *Client) fetchFlags(ctx context.Context) (int, error) {
+// fetchFlags returns (pollInterval, changed, error); changed is true only when
+// the response was a 200 with a fresh blob (not a 304).
+func (c *Client) fetchFlags(ctx context.Context) (int, bool, error) {
 	status, headers, body, err := c.get(ctx, "/sdk/flags", c.flagsETag)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	intervalStr := headers.Get("X-Poll-Interval")
 	interval := 0
@@ -230,14 +361,14 @@ func (c *Client) fetchFlags(ctx context.Context) (int, error) {
 		interval, _ = strconv.Atoi(intervalStr)
 	}
 	if status == http.StatusNotModified {
-		return interval, nil
+		return interval, false, nil
 	}
 	if status != http.StatusOK {
-		return 0, fmt.Errorf("/sdk/flags: %d", status)
+		return 0, false, fmt.Errorf("/sdk/flags: %d", status)
 	}
 	var blob flagsBlob
 	if err := json.Unmarshal(body, &blob); err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	c.mu.Lock()
 	if etag := headers.Get("ETag"); etag != "" {
@@ -245,23 +376,25 @@ func (c *Client) fetchFlags(ctx context.Context) (int, error) {
 	}
 	c.flags = &blob
 	c.mu.Unlock()
-	return interval, nil
+	return interval, true, nil
 }
 
-func (c *Client) fetchExps(ctx context.Context) error {
+// fetchExps returns (changed, error); changed is true only when the response
+// was a 200 with a fresh blob (not a 304).
+func (c *Client) fetchExps(ctx context.Context) (bool, error) {
 	status, headers, body, err := c.get(ctx, "/sdk/experiments", c.expsETag)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if status == http.StatusNotModified {
-		return nil
+		return false, nil
 	}
 	if status != http.StatusOK {
-		return fmt.Errorf("/sdk/experiments: %d", status)
+		return false, fmt.Errorf("/sdk/experiments: %d", status)
 	}
 	var blob expsBlob
 	if err := json.Unmarshal(body, &blob); err != nil {
-		return err
+		return false, err
 	}
 	c.mu.Lock()
 	if etag := headers.Get("ETag"); etag != "" {
@@ -269,7 +402,7 @@ func (c *Client) fetchExps(ctx context.Context) error {
 	}
 	c.exps = &blob
 	c.mu.Unlock()
-	return nil
+	return true, nil
 }
 
 func (c *Client) get(ctx context.Context, path, etag string) (int, http.Header, []byte, error) {
