@@ -35,6 +35,11 @@ type experiment struct {
 	Salt          string  `json:"salt"`
 	AllocationPct int     `json:"allocationPct"`
 	Groups        []group `json:"groups"`
+	// BucketBy is an optional attribute to bucket on instead of the individual
+	// (e.g. "company_id" to keep a whole org on one variant). When empty/absent,
+	// bucketing falls back to user_id ?? anonymous_id. Drives the holdout,
+	// allocation AND group hashes so all three agree. See experiment-platform doc 20.
+	BucketBy string `json:"bucketBy"`
 }
 
 type group struct {
@@ -93,6 +98,31 @@ func userID(u User) string {
 		return fmt.Sprintf("%v", v)
 	}
 	return ""
+}
+
+// pickIdentifier resolves the bucketing unit for experiment assignment. When
+// bucketBy is set and the user carries a non-empty string (or numeric) value for
+// it, that value is the unit (e.g. "company_id" keeps a whole org on one
+// variant). Otherwise it falls back to user_id ?? anonymous_id. Mirrors the
+// canonical pickIdentifier in packages/core/src/eval/gate.ts.
+func pickIdentifier(u User, bucketBy string) string {
+	if bucketBy != "" {
+		if v, ok := u[bucketBy]; ok && v != nil {
+			switch x := v.(type) {
+			case string:
+				if x != "" {
+					return x
+				}
+			case float64:
+				return strconv.FormatFloat(x, 'g', -1, 64)
+			case int:
+				return strconv.Itoa(x)
+			case int64:
+				return strconv.FormatInt(x, 10)
+			}
+		}
+	}
+	return userID(u)
 }
 
 func matchRule(r rule, u User) bool {
@@ -214,7 +244,7 @@ func evalExperiment(exp *experiment, flags *flagsBlob, exps *expsBlob, u User) E
 			return notIn
 		}
 	}
-	uid := userID(u)
+	uid := pickIdentifier(u, exp.BucketBy)
 	if uid == "" {
 		return notIn
 	}

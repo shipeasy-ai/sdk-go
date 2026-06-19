@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Experiment `bucketBy`.** Experiment evaluation now honors a per-experiment
+  `bucketBy` attribute (camelCase JSON, matching the KV blob). When set and the
+  user carries a non-empty string (or numeric) value for it, that value is the
+  bucketing unit — so a whole org keyed on `company_id` lands on one variant —
+  driving the holdout, allocation, and group hashes alike. Absent/empty
+  `bucketBy` (or a missing attribute) falls back to `user_id ?? anonymous_id`,
+  matching gate bucketing. Mirrors the canonical `pickIdentifier` in
+  `@shipeasy/core`.
 - **Default values.** Added `GetFlagOr(name, user, def) bool` and
   `GetConfigOr(name, def) any`. The fallback is returned only when the
   flag/config *cannot* be evaluated (client not ready, or the gate/config is
