@@ -230,7 +230,7 @@ func evalGate(g gate, u User) bool {
 	return Murmur3(g.Salt+":"+uid)%10000 < uint32(g.RolloutPct)
 }
 
-func evalExperiment(exp *experiment, flags *flagsBlob, exps *expsBlob, u User) ExperimentResult {
+func evalExperiment(name string, exp *experiment, flags *flagsBlob, exps *expsBlob, u User, sticky StickyBucketStore) ExperimentResult {
 	notIn := ExperimentResult{InExperiment: false, Group: "control"}
 	if exp == nil || exp.Status != "running" {
 		return notIn
@@ -256,6 +256,24 @@ func evalExperiment(exp *experiment, flags *flagsBlob, exps *expsBlob, u User) E
 			}
 		}
 	}
+
+	// Sticky short-circuit (doc 20 §2): an enrolled unit whose stored salt
+	// prefix still matches skips the allocation gate (so a shrinking allocation
+	// keeps it in) and returns the stored group without re-running the pick. A
+	// salt-prefix mismatch or a now-missing group falls through to re-bucket and
+	// overwrite below.
+	salt8 := saltPrefix(exp.Salt)
+	if sticky != nil && name != "" {
+		if entry, ok := sticky.Get(uid)[name]; ok && entry.S == salt8 {
+			for _, g := range exp.Groups {
+				if g.Name == entry.G {
+					return ExperimentResult{InExperiment: true, Group: g.Name, Params: g.Params}
+				}
+			}
+			// Stored group gone — fall through to re-bucket + overwrite.
+		}
+	}
+
 	if Murmur3(exp.Salt+":alloc:"+uid)%10000 >= uint32(exp.AllocationPct) {
 		return notIn
 	}
@@ -264,8 +282,20 @@ func evalExperiment(exp *experiment, flags *flagsBlob, exps *expsBlob, u User) E
 	for i, g := range exp.Groups {
 		cumulative += uint32(g.Weight)
 		if groupHash < cumulative || i == len(exp.Groups)-1 {
+			if sticky != nil && name != "" {
+				sticky.Set(uid, name, StickyEntry{G: g.Name, S: salt8})
+			}
 			return ExperimentResult{InExperiment: true, Group: g.Name, Params: g.Params}
 		}
 	}
 	return notIn
+}
+
+// saltPrefix returns the first 8 bytes of the salt (the sticky reshuffle key).
+// Salts shorter than 8 chars use the whole salt.
+func saltPrefix(salt string) string {
+	if len(salt) <= 8 {
+		return salt
+	}
+	return salt[:8]
 }

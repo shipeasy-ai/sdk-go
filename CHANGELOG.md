@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- **Private attributes.** Added the `PrivateAttributes []string` client option.
+  Listed keys are stripped from every outbound `/collect` event's `properties`
+  in `Track` (and from `LogExposure` payloads, which carry no caller props).
+  Server evaluation is local, so private attrs never egress for evaluation
+  either — the only egress was `Track`. Matches LD/Statsig `privateAttributes`.
+- **Manual exposure logging.** Added `LogExposure(userID, experimentName)` and
+  `LogExposureUser(user, experimentName)`. The server is stateless and never
+  auto-logs; call these at the decision point. The experiment is re-evaluated
+  for the user and, if enrolled, a single `{type:"exposure", experiment, group,
+  user_id, ts}` event is POSTed to `/collect`. No-op when not enrolled (or in
+  test/offline mode).
+- **Sticky bucketing.** Added the `StickyBucketStore` interface
+  (`Get(unit) map[experiment]StickyEntry`, `Set(unit, experiment, entry)`),
+  the `StickyEntry` value (`G` group, `S` 8-char salt prefix), the built-in
+  `NewInMemoryStickyStore(seed…)`, and the `StickyStore` client option. When a
+  store is supplied, experiment eval — after the holdout, before allocation —
+  honors a stored entry whose salt prefix still matches: it skips the allocation
+  gate and returns the stored group (so a shrinking allocation keeps an enrolled
+  user in and a weight change can't reshuffle them). A salt change moves the
+  prefix and forces a re-bucket + overwrite; a now-missing group falls through.
+  Absent a store, assignment is purely deterministic (unchanged). The bucketing
+  unit is the `bucketBy`-resolved identifier.
 - **Experiment `bucketBy`.** Experiment evaluation now honors a per-experiment
   `bucketBy` attribute (camelCase JSON, matching the KV blob). When set and the
   user carries a non-empty string (or numeric) value for it, that value is the

@@ -110,7 +110,7 @@ func TestEvalVectorsExperiment(t *testing.T) {
 			exps.Universes[exp.Universe] = universe{HoldoutRange: ev.HoldoutRange}
 		}
 
-		got := evalExperiment(&exp, flags, exps, ev.User)
+		got := evalExperiment(ev.Note, &exp, flags, exps, ev.User, nil)
 
 		if got.InExperiment != ev.Result.InExperiment {
 			t.Errorf("experiment vector %d (%s): InExperiment = %v, want %v", i, ev.Note, got.InExperiment, ev.Result.InExperiment)

@@ -43,6 +43,15 @@ type Client struct {
 	// a 304). Guarded by mu. Never fired in localMode.
 	changeListeners map[int]func()
 	nextListenerID  int
+
+	// privateAttributes are stripped from every outbound /collect event's
+	// properties (LD/Statsig parity). Server eval is local, so private attrs
+	// never egress for evaluation; the only egress is Track/LogExposure.
+	privateAttributes []string
+	// stickyStore, when set, locks in experiment assignments per bucketing unit
+	// so a later weight/allocation change can't reshuffle an enrolled user
+	// (a salt change still reshuffles). Absent ⇒ deterministic, unchanged.
+	stickyStore StickyBucketStore
 }
 
 type Options struct {
@@ -55,6 +64,16 @@ type Options struct {
 	DisableTelemetry bool
 	// TelemetryURL overrides the beacon host (defaults to defaultTelemetryURL).
 	TelemetryURL string
+	// PrivateAttributes are event property keys stripped from every outbound
+	// /collect payload (LD/Statsig parity). They never reach the network via
+	// Track or LogExposure. Server evaluation is local, so they never egress
+	// for evaluation either.
+	PrivateAttributes []string
+	// StickyStore, when supplied, makes experiment assignment sticky per
+	// bucketing unit: an enrolled user keeps their group across weight and
+	// allocation changes (a salt change still reshuffles). Absent ⇒ today's
+	// deterministic behaviour. Use NewInMemoryStickyStore or a custom store.
+	StickyStore StickyBucketStore
 }
 
 func NewClient(opts Options) *Client {
@@ -75,12 +94,14 @@ func NewClient(opts Options) *Client {
 		telemetryURL = defaultTelemetryURL
 	}
 	return &Client{
-		apiKey:       opts.APIKey,
-		baseURL:      base,
-		http:         hc,
-		pollInterval: 30 * time.Second,
-		stop:         make(chan struct{}),
-		telemetry:    newTelemetry(telemetryURL, opts.APIKey, "server", env, opts.DisableTelemetry, hc),
+		apiKey:            opts.APIKey,
+		baseURL:           base,
+		http:              hc,
+		pollInterval:      30 * time.Second,
+		stop:              make(chan struct{}),
+		telemetry:         newTelemetry(telemetryURL, opts.APIKey, "server", env, opts.DisableTelemetry, hc),
+		privateAttributes: opts.PrivateAttributes,
+		stickyStore:       opts.StickyStore,
 	}
 }
 
@@ -233,6 +254,7 @@ func (c *Client) GetExperiment(name string, user User, defaultParams any) Experi
 	}
 	flags := c.flags
 	exps := c.exps
+	sticky := c.stickyStore
 	c.mu.RUnlock()
 	var exp *experiment
 	if exps != nil {
@@ -240,11 +262,33 @@ func (c *Client) GetExperiment(name string, user User, defaultParams any) Experi
 			exp = &e
 		}
 	}
-	r := evalExperiment(exp, flags, exps, user)
+	r := evalExperiment(name, exp, flags, exps, user, sticky)
 	if r.Params == nil {
 		r.Params = defaultParams
 	}
 	return r
+}
+
+// stripPrivate drops every key named in privateAttributes from an outbound
+// properties bag. Returns the input unchanged when there's nothing to strip.
+func (c *Client) stripPrivate(props map[string]any) map[string]any {
+	if len(props) == 0 || len(c.privateAttributes) == 0 {
+		return props
+	}
+	out := make(map[string]any, len(props))
+	for k, v := range props {
+		private := false
+		for _, p := range c.privateAttributes {
+			if k == p {
+				private = true
+				break
+			}
+		}
+		if !private {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 func (c *Client) Track(userID, eventName string, properties map[string]any) {
@@ -257,8 +301,8 @@ func (c *Client) Track(userID, eventName string, properties map[string]any) {
 		"user_id":    userID,
 		"ts":         time.Now().UnixMilli(),
 	}
-	if len(properties) > 0 {
-		event["properties"] = properties
+	if safe := c.stripPrivate(properties); len(safe) > 0 {
+		event["properties"] = safe
 	}
 	body, err := json.Marshal(map[string]any{"events": []any{event}})
 	if err != nil {
@@ -267,6 +311,52 @@ func (c *Client) Track(userID, eventName string, properties map[string]any) {
 	go func() {
 		if err := c.post("/collect", body); err != nil {
 			log.Printf("[shipeasy] track failed: %v", err)
+		}
+	}()
+}
+
+// LogExposure emits an exposure event for an experiment at the server-side
+// decision point (parity with the browser's auto-exposure). The server is
+// stateless and never auto-logs, so call this when you actually present the
+// treatment. The experiment is re-evaluated for the user; if enrolled, a single
+// {type:"exposure", experiment, group, user_id, ts} event is POSTed to
+// /collect. No-op in localMode or when the user isn't enrolled.
+//
+// userID may be a bare user id; for bucketBy experiments or anonymous traffic
+// use LogExposureUser with a full User.
+func (c *Client) LogExposure(userID, experimentName string) {
+	c.LogExposureUser(User{"user_id": userID}, experimentName)
+}
+
+// LogExposureUser is LogExposure with a full User (needed for bucketBy
+// experiments or anonymous_id-only traffic).
+func (c *Client) LogExposureUser(user User, experimentName string) {
+	if c.localMode {
+		return
+	}
+	r := c.GetExperiment(experimentName, user, nil)
+	if !r.InExperiment {
+		return
+	}
+	event := map[string]any{
+		"type":       "exposure",
+		"experiment": experimentName,
+		"group":      r.Group,
+		"ts":         time.Now().UnixMilli(),
+	}
+	if v, ok := user["user_id"]; ok && v != nil {
+		event["user_id"] = v
+	}
+	if v, ok := user["anonymous_id"]; ok && v != nil {
+		event["anonymous_id"] = v
+	}
+	body, err := json.Marshal(map[string]any{"events": []any{event}})
+	if err != nil {
+		return
+	}
+	go func() {
+		if err := c.post("/collect", body); err != nil {
+			log.Printf("[shipeasy] logExposure failed: %v", err)
 		}
 	}()
 }
