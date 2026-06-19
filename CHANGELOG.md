@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **OpenFeature provider.** Added a `ShipeasyProvider` (constructed with
+  `shipeasyopenfeature.NewProvider(client)`) implementing the CNCF OpenFeature
+  `github.com/open-feature/go-sdk/openfeature.FeatureProvider` interface, so apps
+  standardized on OpenFeature can plug Shipeasy in as the backing provider.
+  `Metadata().Name` is `"shipeasy"`. Boolean flags resolve through the gate
+  evaluator (`GetFlagDetail`), mapping the Shipeasy reason to the OpenFeature
+  reason/error: `RULE_MATCH→TARGETING_MATCH`, `DEFAULT→DEFAULT`, `OFF→DISABLED`,
+  `OVERRIDE→STATIC`, `FLAG_NOT_FOUND→ERROR/FlagNotFound`,
+  `CLIENT_NOT_READY→ERROR/ProviderNotReady`. String/Float/Int/Object flags route
+  to `GetConfig` (absent → default with reason `DEFAULT`; wrong type → default
+  with `TYPE_MISMATCH`; present → value with `TARGETING_MATCH`). The
+  `targetingKey` becomes `user_id`; all other context entries become targeting
+  attributes. `Hooks()` returns `nil`. It lives in its own nested Go module
+  (`github.com/shipeasy-ai/sdk-go/openfeature`) so the base SDK does **not** pull
+  in `go-sdk` for consumers that don't use OpenFeature.
 - **Private attributes.** Added the `PrivateAttributes []string` client option.
   Listed keys are stripped from every outbound `/collect` event's `properties`
   in `Track` (and from `LogExposure` payloads, which carry no caller props).
