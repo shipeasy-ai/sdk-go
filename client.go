@@ -3,17 +3,27 @@ package shipeasy
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
 const defaultBaseURL = "https://edge.shipeasy.dev"
+
+//go:embed VERSION
+var versionFile string
+
+// SDKVersion is the SDK's own version, read from the VERSION file at build time
+// (the same VERSION the publish workflow self-tags from). Reported as
+// sdk_version on see() error events.
+var SDKVersion = strings.TrimSpace(versionFile)
 
 type Client struct {
 	apiKey       string
@@ -29,6 +39,11 @@ type Client struct {
 	once         sync.Once
 	initialized  bool
 	telemetry    *telemetry
+
+	// env is the published env (e.g. "prod"), reported on see() error events.
+	env string
+	// seeLimiter bounds see() network chatter (30s dedup + 25/process cap).
+	seeLimiter *seeLimiter
 
 	// localMode is set by NewTestClient: Init/InitOnce never fetch and Track
 	// is a no-op, so the client does zero network and is usable immediately.
@@ -93,7 +108,7 @@ func NewClient(opts Options) *Client {
 	if telemetryURL == "" {
 		telemetryURL = defaultTelemetryURL
 	}
-	return &Client{
+	c := &Client{
 		apiKey:            opts.APIKey,
 		baseURL:           base,
 		http:              hc,
@@ -102,7 +117,13 @@ func NewClient(opts Options) *Client {
 		telemetry:         newTelemetry(telemetryURL, opts.APIKey, "server", env, opts.DisableTelemetry, hc),
 		privateAttributes: opts.PrivateAttributes,
 		stickyStore:       opts.StickyStore,
+		env:               env,
+		seeLimiter:        newSeeLimiter(),
 	}
+	// Register this client as the default backing the package-level see()
+	// funcs (last constructed wins — the server-SDK analog of shipeasy({key})).
+	SetDefaultClient(c)
+	return c
 }
 
 func (c *Client) Init(ctx context.Context) error {

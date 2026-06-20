@@ -25,6 +25,8 @@ func NewTestClient() *Client {
 		telemetry:    newTelemetry("", "", "server", "prod", true, nil),
 		localMode:    true,
 		initialized:  true,
+		env:          "prod",
+		seeLimiter:   newSeeLimiter(),
 	}
 }
 

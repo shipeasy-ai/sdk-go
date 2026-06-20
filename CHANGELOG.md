@@ -1,6 +1,31 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
+
+- **`see()` structured error reporting.** Added the `see()` grammar (parity with
+  `@shipeasy/sdk` and the Python SDK) for documenting the product *consequence*
+  of a handled error, not just its stack. Both an instance API
+  (`client.See(err)`, `client.SeeViolation(name)`,
+  `client.ControlFlowException(err)`) and package-level functions (`shipeasy.See`,
+  `shipeasy.SeeViolation`, `shipeasy.ControlFlowException`) backed by a default
+  client registered on `NewClient` (last constructed wins; override with
+  `shipeasy.SetDefaultClient`). A global `See()` before any client logs a warning
+  and returns a no-op chain (never panics). Grammar:
+  `See(err).CausesThe("checkout").Extras(map[string]any{...}).To("use cached prices")`
+  — `.To(outcome)` is the terminal that builds the `type:"error"` event and
+  fire-and-forgets a POST to `/collect` (idempotent; a second `.To()` is a no-op).
+  `SeeViolation` reports a `kind:"violation"` event (no stack). For a Go `error`,
+  `error_type` is the concrete type name (`%T`) and a stack is captured via
+  `runtime/debug.Stack()`. `ControlFlowException(err).Because(reason).Extras(...)`
+  marks the error as expected control flow (queryable via `shipeasy.IsExpected`)
+  and reports nothing. Extras are sanitized (≤20 keys, 200-char string values,
+  nil/unsupported types dropped) and the client's `PrivateAttributes` are
+  stripped. A per-process limiter dedups identical events within 30s and caps at
+  25 sends. The new `sdk_version` field (from the embedded `VERSION` file, exposed
+  as `shipeasy.SDKVersion`) and the client `env` are included on every event.
+  No-op in test/offline mode. NEW client field: `env` is now stored on the client.
+
+## 0.5.0
 
 - **OpenFeature provider.** Added a `ShipeasyProvider` (constructed with
   `shipeasyopenfeature.NewProvider(client)`) implementing the CNCF OpenFeature
