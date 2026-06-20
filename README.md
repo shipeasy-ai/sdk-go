@@ -52,6 +52,29 @@ fully-rolled (100%) gate as on; only fractional gates need the id. The cookie
 name and format are a cross-SDK contract; see
 [`18-identity-bucketing.md`](https://github.com/shipeasy-ai/experiment-platform/blob/main/18-identity-bucketing.md).
 
+## Server-side rendering (SSR)
+
+Emit the request's evaluated flags as a declarative `<script>` tag so the
+browser SDK has them on first paint. `BootstrapScriptTag` carries the payload in
+`data-*` attributes (**no key**); the static `se-bootstrap.js` loader hydrates
+`window.__SE_BOOTSTRAP` and writes the `__se_anon_id` cookie so the browser
+buckets identically to the server.
+
+```go
+user := shipeasy.User{"user_id": "u_123"}
+
+// Two tags for the document <head>. The PUBLIC client key (not the server
+// key) goes on the i18n loader tag.
+head := c.BootstrapScriptTag(user, shipeasy.BootstrapTagOptions{AnonID: anonID}) +
+    c.I18nScriptTag(clientKey, "en:prod", shipeasy.BootstrapTagOptions{})
+
+// …or get the raw payload (Flags / Configs / Experiments / Killswitches):
+boot := c.Evaluate(user)
+```
+
+`BootstrapTagOptions` also accepts `I18nProfile` and `BaseURL` (defaults to
+`https://cdn.shipeasy.ai`).
+
 ## Default values
 
 Go has no default arguments, so the SDK ships `…Or` variants that take an
