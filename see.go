@@ -261,7 +261,7 @@ func (l *seeLimiter) shouldSend(ev seeEvent) bool {
 // terminal .To(outcome) builds the event and fire-and-forgets the report. It is
 // idempotent: a second .To() is a no-op.
 type SeeChain struct {
-	client  *Client
+	client  *Engine
 	problem any
 	subject string
 	outcome string
@@ -381,24 +381,24 @@ func IsExpected(err error) bool {
 // .To(outcome):
 //
 //	client.See(err).CausesThe("checkout").To("use cached prices")
-func (c *Client) See(problem any) *SeeChain {
+func (c *Engine) See(problem any) *SeeChain {
 	return &SeeChain{client: c, problem: problem}
 }
 
 // SeeViolation reports a non-exception problem. The name is a stable fingerprint
 // key — put variable data in .Extras(), never the name.
-func (c *Client) SeeViolation(name string) *SeeChain {
+func (c *Engine) SeeViolation(name string) *SeeChain {
 	return &SeeChain{client: c, problem: Violation{Name: name}}
 }
 
 // ControlFlowException marks an error as expected control flow — reports nothing.
-func (c *Client) ControlFlowException(err error) *ControlFlowChain {
+func (c *Engine) ControlFlowException(err error) *ControlFlowChain {
 	return &ControlFlowChain{err: err}
 }
 
 // dispatchSee builds the wire event and fire-and-forgets the POST to /collect.
 // No-op in localMode. Spam-guarded. Never panics into caller code.
-func (c *Client) dispatchSee(s *SeeChain) {
+func (c *Engine) dispatchSee(s *SeeChain) {
 	if c.localMode {
 		return
 	}
@@ -431,45 +431,45 @@ func (c *Client) dispatchSee(s *SeeChain) {
 	}()
 }
 
-// ---- Package-level default client + global API ----
+// ---- Package-level default engine + global API ----
 
 var (
-	defaultClient   *Client
-	defaultClientMu sync.RWMutex
+	defaultEngine   *Engine
+	defaultEngineMu sync.RWMutex
 )
 
-// SetDefaultClient registers the client backing the package-level See(),
-// SeeViolation(), and ControlFlowException() functions. NewClient calls this
-// automatically (last constructed wins).
-func SetDefaultClient(c *Client) {
-	defaultClientMu.Lock()
-	defaultClient = c
-	defaultClientMu.Unlock()
+// SetDefaultEngine registers the engine backing the package-level See(),
+// SeeViolation(), and ControlFlowException() functions. NewEngine and Configure
+// call this automatically (last constructed wins).
+func SetDefaultEngine(e *Engine) {
+	defaultEngineMu.Lock()
+	defaultEngine = e
+	defaultEngineMu.Unlock()
 }
 
-func resolveDefaultClient() *Client {
-	defaultClientMu.RLock()
-	defer defaultClientMu.RUnlock()
-	return defaultClient
+func resolveDefaultEngine() *Engine {
+	defaultEngineMu.RLock()
+	defer defaultEngineMu.RUnlock()
+	return defaultEngine
 }
 
-// See reports a handled error via the default client (the last one constructed).
-// Before any client exists it logs a warning and returns a no-op chain — it
+// See reports a handled error via the default engine (the last one constructed).
+// Before any engine exists it logs a warning and returns a no-op chain — it
 // never panics.
 func See(problem any) *SeeChain {
-	c := resolveDefaultClient()
+	c := resolveDefaultEngine()
 	if c == nil {
-		log.Printf("[shipeasy] see() called before a client was created — error dropped")
+		log.Printf("[shipeasy] see() called before an engine was created — error dropped")
 		return &SeeChain{problem: problem}
 	}
 	return c.See(problem)
 }
 
-// SeeViolation reports a non-exception problem via the default client.
+// SeeViolation reports a non-exception problem via the default engine.
 func SeeViolation(name string) *SeeChain {
-	c := resolveDefaultClient()
+	c := resolveDefaultEngine()
 	if c == nil {
-		log.Printf("[shipeasy] see() called before a client was created — error dropped")
+		log.Printf("[shipeasy] see() called before an engine was created — error dropped")
 		return &SeeChain{problem: Violation{Name: name}}
 	}
 	return c.SeeViolation(name)

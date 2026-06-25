@@ -2,7 +2,7 @@
 //
 // It lets apps standardized on the CNCF OpenFeature API plug Shipeasy in as the
 // backing flag provider. It is a thin, pure adapter over the SDK's existing
-// *shipeasy.Client — no change to evaluation:
+// *shipeasy.Engine — no change to evaluation:
 //
 //	import (
 //		"github.com/open-feature/go-sdk/openfeature"
@@ -10,7 +10,7 @@
 //		shipeasyof "github.com/shipeasy-ai/sdk-go/openfeature"
 //	)
 //
-//	client := shipeasy.NewClient(shipeasy.Options{APIKey: os.Getenv("SHIPEASY_SERVER_KEY")})
+//	client := shipeasy.NewEngine(shipeasy.Options{APIKey: os.Getenv("SHIPEASY_SERVER_KEY")})
 //	_ = client.Init(ctx)
 //	_ = openfeature.SetProviderAndWait(shipeasyof.NewProvider(client))
 //
@@ -32,16 +32,16 @@ import (
 const providerName = "shipeasy"
 
 // Provider implements the OpenFeature openfeature.FeatureProvider interface by
-// wrapping a *shipeasy.Client. Boolean flags resolve through the SDK's gate
+// wrapping a *shipeasy.Engine. Boolean flags resolve through the SDK's gate
 // evaluation (GetFlagDetail); string/float/int/object flags resolve through the
 // SDK's dynamic configs (GetConfig). Resolution is local against the cached
 // blob, so there is no network on the evaluation path.
 type Provider struct {
-	client *shipeasy.Client
+	client *shipeasy.Engine
 }
 
-// NewProvider wraps a *shipeasy.Client as an OpenFeature provider.
-func NewProvider(client *shipeasy.Client) *Provider {
+// NewProvider wraps a *shipeasy.Engine as an OpenFeature provider.
+func NewProvider(client *shipeasy.Engine) *Provider {
 	return &Provider{client: client}
 }
 

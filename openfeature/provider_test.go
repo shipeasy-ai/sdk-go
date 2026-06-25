@@ -12,7 +12,7 @@ import (
 // newOFClient wires a no-network shipeasy test client through the real go-sdk
 // (SetProviderAndWait + NewClient), seeding flags/configs via the SDK's own
 // override facilities so no network is touched.
-func newOFClient(t *testing.T, seed func(c *shipeasy.Client)) *openfeature.Client {
+func newOFClient(t *testing.T, seed func(c *shipeasy.Engine)) *openfeature.Client {
 	t.Helper()
 	sc := shipeasy.NewTestClient()
 	if seed != nil {
@@ -24,7 +24,7 @@ func newOFClient(t *testing.T, seed func(c *shipeasy.Client)) *openfeature.Clien
 // ofClientFor registers sc as the global provider and returns an OpenFeature
 // client. SetProviderAndWait replaces any previously-set provider, so tests are
 // isolated despite the shared OpenFeature singleton.
-func ofClientFor(t *testing.T, sc *shipeasy.Client) *openfeature.Client {
+func ofClientFor(t *testing.T, sc *shipeasy.Engine) *openfeature.Client {
 	t.Helper()
 	if err := openfeature.SetProviderAndWait(NewProvider(sc)); err != nil {
 		t.Fatalf("SetProviderAndWait: %v", err)
@@ -35,7 +35,7 @@ func ofClientFor(t *testing.T, sc *shipeasy.Client) *openfeature.Client {
 // snapshotClient builds a no-network shipeasy client seeded from a raw /sdk/flags
 // JSON body, so tests can exercise real gate evaluation (reasons, targeting)
 // rather than only Override* short-circuits.
-func snapshotClient(t *testing.T, flagsJSON string) *shipeasy.Client {
+func snapshotClient(t *testing.T, flagsJSON string) *shipeasy.Engine {
 	t.Helper()
 	var flags any
 	if err := json.Unmarshal([]byte(flagsJSON), &flags); err != nil {
@@ -60,7 +60,7 @@ func TestHooksNil(t *testing.T) {
 
 func TestBooleanTargetingMatch(t *testing.T) {
 	ctx := context.Background()
-	of := newOFClient(t, func(c *shipeasy.Client) {
+	of := newOFClient(t, func(c *shipeasy.Engine) {
 		c.OverrideFlag("new_checkout", true)
 	})
 	d, err := of.BooleanValueDetails(ctx, "new_checkout", false, openfeature.NewEvaluationContext("u1", nil))
@@ -133,7 +133,7 @@ func TestBooleanProviderNotReady(t *testing.T) {
 
 func TestStringResolve(t *testing.T) {
 	ctx := context.Background()
-	of := newOFClient(t, func(c *shipeasy.Client) {
+	of := newOFClient(t, func(c *shipeasy.Engine) {
 		c.OverrideConfig("greeting", "hello")
 	})
 	d, err := of.StringValueDetails(ctx, "greeting", "default", openfeature.EvaluationContext{})
@@ -165,7 +165,7 @@ func TestStringDefault(t *testing.T) {
 
 func TestStringTypeMismatch(t *testing.T) {
 	ctx := context.Background()
-	of := newOFClient(t, func(c *shipeasy.Client) {
+	of := newOFClient(t, func(c *shipeasy.Engine) {
 		c.OverrideConfig("num", float64(42))
 	})
 	d, err := of.StringValueDetails(ctx, "num", "fallback", openfeature.EvaluationContext{})
@@ -182,7 +182,7 @@ func TestStringTypeMismatch(t *testing.T) {
 
 func TestFloatResolve(t *testing.T) {
 	ctx := context.Background()
-	of := newOFClient(t, func(c *shipeasy.Client) {
+	of := newOFClient(t, func(c *shipeasy.Engine) {
 		c.OverrideConfig("rate", float64(3.5))
 	})
 	d, err := of.FloatValueDetails(ctx, "rate", 1.0, openfeature.EvaluationContext{})
@@ -200,7 +200,7 @@ func TestFloatResolve(t *testing.T) {
 func TestIntResolve(t *testing.T) {
 	ctx := context.Background()
 	// JSON numbers decode to float64; verify int coercion.
-	of := newOFClient(t, func(c *shipeasy.Client) {
+	of := newOFClient(t, func(c *shipeasy.Engine) {
 		c.OverrideConfig("limit", float64(7))
 	})
 	d, err := of.IntValueDetails(ctx, "limit", 1, openfeature.EvaluationContext{})
@@ -214,7 +214,7 @@ func TestIntResolve(t *testing.T) {
 
 func TestFloatTypeMismatch(t *testing.T) {
 	ctx := context.Background()
-	of := newOFClient(t, func(c *shipeasy.Client) {
+	of := newOFClient(t, func(c *shipeasy.Engine) {
 		c.OverrideConfig("notnum", "abc")
 	})
 	d, err := of.FloatValueDetails(ctx, "notnum", 9.9, openfeature.EvaluationContext{})
@@ -232,7 +232,7 @@ func TestFloatTypeMismatch(t *testing.T) {
 func TestObjectResolve(t *testing.T) {
 	ctx := context.Background()
 	want := map[string]any{"cta": "Buy now"}
-	of := newOFClient(t, func(c *shipeasy.Client) {
+	of := newOFClient(t, func(c *shipeasy.Engine) {
 		c.OverrideConfig("billing_copy", want)
 	})
 	d, err := of.ObjectValueDetails(ctx, "billing_copy", map[string]any{}, openfeature.EvaluationContext{})

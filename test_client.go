@@ -11,14 +11,17 @@ import "time"
 //	c.OverrideConfig("billing_copy", map[string]any{"cta": "Buy now"})
 //	c.OverrideExperiment("checkout_button", "treatment", map[string]any{"color": "green"})
 //
-// The override setters also work on a normal client built with NewClient — an
+// The override setters also work on a normal engine built with NewEngine — an
 // override always wins over fetched data in GetFlag/GetConfig/GetExperiment.
+//
+// NewTestClient returns an *Engine (the heavyweight type, renamed from Client in
+// 0.8.0); the name is kept for source compatibility with existing tests.
 
-// NewTestClient returns a no-network, immediately-usable client: telemetry is
+// NewTestClient returns a no-network, immediately-usable engine: telemetry is
 // disabled, Init/InitOnce are no-ops (they never fetch), Track is a no-op, and
 // no API key is required. Seed behavior with the Override* setters.
-func NewTestClient() *Client {
-	return &Client{
+func NewTestClient() *Engine {
+	return &Engine{
 		baseURL:      defaultBaseURL,
 		pollInterval: 30 * time.Second,
 		stop:         make(chan struct{}),
@@ -32,7 +35,7 @@ func NewTestClient() *Client {
 
 // OverrideFlag forces GetFlag(name, _) to return value regardless of the
 // fetched gate definition or the user passed in.
-func (c *Client) OverrideFlag(name string, value bool) {
+func (c *Engine) OverrideFlag(name string, value bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.flagOverrides == nil {
@@ -43,7 +46,7 @@ func (c *Client) OverrideFlag(name string, value bool) {
 
 // OverrideConfig forces GetConfig(name) to return (value, true) regardless of
 // the fetched config.
-func (c *Client) OverrideConfig(name string, value any) {
+func (c *Engine) OverrideConfig(name string, value any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.configOverrides == nil {
@@ -55,7 +58,7 @@ func (c *Client) OverrideConfig(name string, value any) {
 // OverrideExperiment forces GetExperiment(name, _, _) to return
 // ExperimentResult{InExperiment: true, Group: group, Params: params}. If params
 // is nil the call's defaultParams still applies, matching normal behavior.
-func (c *Client) OverrideExperiment(name string, group string, params any) {
+func (c *Engine) OverrideExperiment(name string, group string, params any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.expOverrides == nil {
@@ -65,7 +68,7 @@ func (c *Client) OverrideExperiment(name string, group string, params any) {
 }
 
 // ClearOverrides removes every flag, config, and experiment override.
-func (c *Client) ClearOverrides() {
+func (c *Engine) ClearOverrides() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.flagOverrides = nil

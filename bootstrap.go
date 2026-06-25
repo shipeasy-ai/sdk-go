@@ -48,7 +48,7 @@ type BootstrapTagOptions struct {
 // gate, config and experiment. Local overrides (OverrideFlag/Config/Experiment)
 // win, matching the per-key getters. No telemetry is emitted (a batch evaluate
 // is not a per-flag exposure).
-func (c *Client) Evaluate(user User) Bootstrap {
+func (c *Engine) Evaluate(user User) Bootstrap {
 	c.mu.RLock()
 	flags := c.flags
 	exps := c.exps
@@ -107,7 +107,7 @@ func (c *Client) Evaluate(user User) Bootstrap {
 // request: se-bootstrap.js reads its data-* attributes and hydrates
 // window.__SE_BOOTSTRAP (and writes the anon cookie). No SDK key is embedded —
 // the server key must never reach the browser.
-func (c *Client) BootstrapScriptTag(user User, opts BootstrapTagOptions) string {
+func (c *Engine) BootstrapScriptTag(user User, opts BootstrapTagOptions) string {
 	b := c.Evaluate(user)
 	base := cdnBase(opts.BaseURL)
 	profile := opts.I18nProfile
@@ -133,7 +133,7 @@ func (c *Client) BootstrapScriptTag(user User, opts BootstrapTagOptions) string 
 // I18nScriptTag returns the i18n loader <script> tag. The loader fetches and
 // installs translations for the profile using the PUBLIC client key (safe to
 // embed in HTML). Pair it with BootstrapScriptTag in your document head.
-func (c *Client) I18nScriptTag(clientKey, profile string, opts BootstrapTagOptions) string {
+func (c *Engine) I18nScriptTag(clientKey, profile string, opts BootstrapTagOptions) string {
 	base := cdnBase(opts.BaseURL)
 	if profile == "" {
 		profile = "en:prod"

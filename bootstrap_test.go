@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func seedClient() *Client {
+func seedClient() *Engine {
 	c := NewTestClient()
 	c.flags = &flagsBlob{
 		Gates: map[string]gate{

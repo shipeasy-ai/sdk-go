@@ -24,11 +24,11 @@ type evalVectors struct {
 		Pass bool   `json:"pass"`
 	} `json:"gate"`
 	Experiment []struct {
-		Note         string     `json:"note"`
-		Experiment   experiment `json:"experiment"`
-		User         User       `json:"user"`
+		Note         string          `json:"note"`
+		Experiment   experiment      `json:"experiment"`
+		User         User            `json:"user"`
 		Flags        map[string]bool `json:"flags"`
-		HoldoutRange []int      `json:"holdoutRange"`
+		HoldoutRange []int           `json:"holdoutRange"`
 		Result       struct {
 			InExperiment bool    `json:"inExperiment"`
 			Group        *string `json:"group"`

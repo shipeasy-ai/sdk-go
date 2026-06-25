@@ -59,7 +59,7 @@ func (r *captureRT) count() int {
 
 // newCaptureClient builds a real (non-test-mode) client whose /collect POSTs are
 // captured, and waits for the fire-and-forget goroutine to land before reading.
-func newCaptureClient(opts Options) (*Client, *captureRT) {
+func newCaptureClient(opts Options) (*Engine, *captureRT) {
 	rt := &captureRT{}
 	opts.HTTP = &http.Client{Transport: rt}
 	opts.DisableTelemetry = true
@@ -69,7 +69,7 @@ func newCaptureClient(opts Options) (*Client, *captureRT) {
 	if opts.APIKey == "" {
 		opts.APIKey = "srv_key"
 	}
-	return NewClient(opts), rt
+	return NewEngine(opts), rt
 }
 
 // waitFor polls until cond is true or the deadline passes (the send is async).
@@ -252,8 +252,8 @@ func TestGlobalSeeUsesLastConstructedClient(t *testing.T) {
 }
 
 func TestGlobalSeeBeforeClientWarnsAndDrops(t *testing.T) {
-	SetDefaultClient(nil)
-	defer SetDefaultClient(nil)
+	SetDefaultEngine(nil)
+	defer SetDefaultEngine(nil)
 	// Must not panic and must send nothing (no client, no transport).
 	See(errors.New("x")).CausesThe("checkout").To("use cached prices")
 }

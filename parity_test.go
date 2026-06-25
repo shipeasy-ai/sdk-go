@@ -42,7 +42,7 @@ func TestGetFlagOr(t *testing.T) {
 
 // def returned when the client is not ready (uninitialized).
 func TestGetFlagOrNotReady(t *testing.T) {
-	c := NewClient(Options{APIKey: "k", DisableTelemetry: true})
+	c := NewEngine(Options{APIKey: "k", DisableTelemetry: true})
 	// Never Init'd → initialized=false.
 	if got := c.GetFlagOr("anything", User{}, true); got != true {
 		t.Errorf("GetFlagOr on not-ready client = %v, want def=true (CLIENT_NOT_READY)", got)
@@ -73,7 +73,7 @@ func TestGetFlagDetailReasons(t *testing.T) {
 	}
 
 	// CLIENT_NOT_READY (uninitialized, no blob)
-	notReady := NewClient(Options{APIKey: "k", DisableTelemetry: true})
+	notReady := NewEngine(Options{APIKey: "k", DisableTelemetry: true})
 	if d := notReady.GetFlagDetail("x", User{}); d.Reason != ReasonClientNotReady || d.Value {
 		t.Errorf("not-ready: got %+v, want {false CLIENT_NOT_READY}", d)
 	}
@@ -81,10 +81,10 @@ func TestGetFlagDetailReasons(t *testing.T) {
 	// Build a client with a real blob (initialized) for the remaining reasons.
 	withBlob := NewOfflineClientFromSnapshot(map[string]any{
 		"gates": map[string]any{
-			"off":   map[string]any{"enabled": false, "salt": "s", "rolloutPct": 10000},
-			"kill":  map[string]any{"enabled": true, "killswitch": true, "salt": "s", "rolloutPct": 10000},
+			"off":    map[string]any{"enabled": false, "salt": "s", "rolloutPct": 10000},
+			"kill":   map[string]any{"enabled": true, "killswitch": true, "salt": "s", "rolloutPct": 10000},
 			"fullon": map[string]any{"enabled": true, "salt": "s", "rolloutPct": 10000},
-			"zero":  map[string]any{"enabled": true, "salt": "s", "rolloutPct": 0},
+			"zero":   map[string]any{"enabled": true, "salt": "s", "rolloutPct": 0},
 			"rule": map[string]any{
 				"enabled": true, "salt": "s", "rolloutPct": 10000,
 				"rules": []any{map[string]any{"attr": "plan", "op": "eq", "value": "pro"}},
@@ -175,7 +175,7 @@ func (r *changingRT) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func TestOnChangeFiresOnNewData(t *testing.T) {
 	rt := &changingRT{}
-	c := NewClient(Options{APIKey: "k", DisableTelemetry: true, HTTP: &http.Client{Transport: rt}})
+	c := NewEngine(Options{APIKey: "k", DisableTelemetry: true, HTTP: &http.Client{Transport: rt}})
 
 	var fired int32
 	cancel := c.OnChange(func() { atomic.AddInt32(&fired, 1) })
@@ -230,7 +230,7 @@ func TestOnChangeFiresOnNewData(t *testing.T) {
 
 // A panicking listener must not crash fireListeners or block the others.
 func TestOnChangeListenerPanicRecovered(t *testing.T) {
-	c := NewClient(Options{APIKey: "k", DisableTelemetry: true})
+	c := NewEngine(Options{APIKey: "k", DisableTelemetry: true})
 	c.OnChange(func() { panic("boom") })
 	var ok int32
 	c.OnChange(func() { atomic.AddInt32(&ok, 1) })
@@ -350,7 +350,7 @@ func TestNewOfflineClientFromFile(t *testing.T) {
 // Sanity: GetFlagDetail on a never-initialized client always reports not-ready,
 // even with a poll interval that would otherwise tick.
 func TestDetailNotReadyStable(t *testing.T) {
-	c := NewClient(Options{APIKey: "k", DisableTelemetry: true})
+	c := NewEngine(Options{APIKey: "k", DisableTelemetry: true})
 	c.pollInterval = time.Hour
 	if d := c.GetFlagDetail("x", User{}); d.Reason != ReasonClientNotReady {
 		t.Errorf("reason = %q, want CLIENT_NOT_READY", d.Reason)

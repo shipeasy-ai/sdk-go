@@ -123,7 +123,7 @@ func TestTrackNoOp(t *testing.T) {
 
 // Overrides also work on a normal client and win over fetched data.
 func TestOverrideWinsOnNormalClient(t *testing.T) {
-	c := NewClient(Options{APIKey: "k", DisableTelemetry: true})
+	c := NewEngine(Options{APIKey: "k", DisableTelemetry: true})
 	c.OverrideFlag("g", true)
 	if !c.GetFlag("g", User{"user_id": "u"}) {
 		t.Errorf("override should win even on a normal client")

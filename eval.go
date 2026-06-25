@@ -15,8 +15,8 @@ type ExperimentResult struct {
 type User map[string]any
 
 type gate struct {
-	Enabled    any   `json:"enabled"`
-	Killswitch any   `json:"killswitch"`
+	Enabled    any    `json:"enabled"`
+	Killswitch any    `json:"killswitch"`
 	Salt       string `json:"salt"`
 	RolloutPct int    `json:"rolloutPct"`
 	Rules      []rule `json:"rules"`
@@ -53,8 +53,23 @@ type universe struct {
 }
 
 type flagsBlob struct {
-	Gates   map[string]gate                  `json:"gates"`
-	Configs map[string]struct{ Value any `json:"value"` } `json:"configs"`
+	Gates   map[string]gate `json:"gates"`
+	Configs map[string]struct {
+		Value any `json:"value"`
+	} `json:"configs"`
+	// Killswitches ride the flags blob alongside gates. Each entry carries a
+	// top-level value/enabled plus an optional per-key switches map (the
+	// dashboard "switches" feature). Read via Engine.GetKillswitch.
+	Killswitches map[string]killswitch `json:"killswitches"`
+}
+
+// killswitch is one entry in the flags blob's killswitches map. Value (or the
+// legacy Enabled) is the top-level kill state; Switches holds named per-key
+// overrides.
+type killswitch struct {
+	Value    any            `json:"value"`
+	Enabled  any            `json:"enabled"`
+	Switches map[string]any `json:"switches"`
 }
 
 type expsBlob struct {

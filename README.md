@@ -6,25 +6,73 @@ Server SDK for [Shipeasy](https://shipeasy.dev). Feature flags, configs, A/B exp
 go get github.com/shipeasy-ai/sdk-go
 ```
 
+Configure once at startup, then build a cheap user-bound `Client` per request:
+
 ```go
 import (
-    "context"
     shipeasy "github.com/shipeasy-ai/sdk-go"
 )
 
-c := shipeasy.NewClient(shipeasy.Options{APIKey: os.Getenv("SHIPEASY_SERVER_KEY")})
-if err := c.Init(context.Background()); err != nil { panic(err) }
-defer c.Destroy()
+// Once, at process start. The api key lives here; the optional Attributes
+// transform maps YOUR user type to the Shipeasy attribute map.
+shipeasy.Configure(shipeasy.Options{
+    APIKey: os.Getenv("SHIPEASY_SERVER_KEY"),
+    Attributes: func(u any) shipeasy.User {
+        acct := u.(*Account)
+        return shipeasy.User{"user_id": acct.ID, "plan": acct.Plan}
+    },
+})
 
-if c.GetFlag("new_checkout", shipeasy.User{"user_id": "u_123"}) { ... }
+// Per request: bind the user once, then call with NO user argument.
+c := shipeasy.NewClient(acct)            // acct is your own *Account
+if c.GetFlag("new_checkout") { /* ... */ }
 
 cfg, _ := c.GetConfig("billing_copy")
 
-r := c.GetExperiment("checkout_button", shipeasy.User{"user_id": "u_123"}, map[string]any{"color": "blue"})
-_ = r.Group; _ = r.Params
+r := c.GetExperiment("checkout_button", map[string]any{"color": "blue"})
+_ = r.Group
+_ = r.Params
 
-c.Track("u_123", "purchase", map[string]any{"amount": 49})
+paused := c.GetKillswitch("payments_paused")
+_ = paused
 ```
+
+If you don't configure an `Attributes` transform, the value you pass to
+`NewClient` is assumed to already BE the attribute map, so
+`shipeasy.NewClient(shipeasy.User{"user_id": "u_123", "plan": "pro"})` works
+as-is. `NewClient` **panics** if `Configure` was not called first (the api key
+lives in the global config — failing loudly surfaces the misconfiguration).
+
+`Configure` builds one shared **`Engine`** (the heavyweight type that owns the
+api key, blob cache, poll timer, telemetry and the `see()` surface) and kicks
+off a one-shot fetch in the background, so the first `NewClient(user).GetFlag()`
+resolves against real rules without an explicit init.
+
+### Managing the engine directly (advanced)
+
+Most apps only need `Configure` + `NewClient`. When you need full control —
+multiple engines in one process, an explicit `Init` to start background polling,
+`Track`, `OnChange`, or the `Override*` setters — build an `Engine` yourself:
+
+```go
+import "context"
+
+eng := shipeasy.NewEngine(shipeasy.Options{APIKey: os.Getenv("SHIPEASY_SERVER_KEY")})
+if err := eng.Init(context.Background()); err != nil { panic(err) }   // starts polling
+defer eng.Destroy()
+
+if eng.GetFlag("new_checkout", shipeasy.User{"user_id": "u_123"}) { /* ... */ }
+eng.Track("u_123", "purchase", map[string]any{"amount": 49})
+```
+
+> **Breaking change in 0.8.0:** the heavyweight type formerly named `Client` is
+> now `Engine`, and `NewClient(Options)` is now `NewEngine(Options)`. The name
+> `Client` is now the lightweight user-bound handle built with
+> `NewClient(user)`. See the [CHANGELOG](CHANGELOG.md).
+
+> The sections below show the **`Engine`** API (methods take an explicit `user`
+> argument). The bound `Client` from `NewClient(user)` exposes the same methods
+> with the user already bound (no `user` argument) — pick whichever fits.
 
 ## Anonymous visitors (zero-config bucketing)
 

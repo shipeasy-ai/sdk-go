@@ -53,13 +53,13 @@ func (cs *collectServer) all() []map[string]any {
 
 // liveClient returns a non-localMode client pointed at the fake collect server,
 // telemetry off.
-func (cs *collectServer) liveClient(opts Options) *Client {
+func (cs *collectServer) liveClient(opts Options) *Engine {
 	opts.BaseURL = cs.srv.URL
 	opts.DisableTelemetry = true
 	if opts.APIKey == "" {
 		opts.APIKey = "k"
 	}
-	return NewClient(opts)
+	return NewEngine(opts)
 }
 
 // ---- Feature A: private attributes ----

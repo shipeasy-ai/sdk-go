@@ -43,7 +43,7 @@ func collectURLs(ch chan string, max int, d time.Duration) []string {
 // 1) basic telemetry send works for each entity call, hitting the right URL.
 func TestTelemetryFiresPerEntity(t *testing.T) {
 	hc, ch := recordingClient()
-	c := NewClient(Options{APIKey: "k", TelemetryURL: "https://e.x", HTTP: hc})
+	c := NewEngine(Options{APIKey: "k", TelemetryURL: "https://e.x", HTTP: hc})
 	c.GetFlag("g", User{})
 	c.GetConfig("c")
 	c.GetExperiment("e", User{}, nil)
@@ -66,7 +66,7 @@ func TestTelemetryFiresPerEntity(t *testing.T) {
 // 2) telemetry is not sent when disabled in settings.
 func TestTelemetryDisabled(t *testing.T) {
 	hc, ch := recordingClient()
-	c := NewClient(Options{APIKey: "k", TelemetryURL: "https://e.x", HTTP: hc, DisableTelemetry: true})
+	c := NewEngine(Options{APIKey: "k", TelemetryURL: "https://e.x", HTTP: hc, DisableTelemetry: true})
 	c.GetFlag("g", User{})
 	c.GetConfig("c")
 	c.GetExperiment("e", User{}, nil)

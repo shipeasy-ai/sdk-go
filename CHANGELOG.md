@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.8.0
+
+- **BREAKING — `configure()` + user-bound `Client(user)` front door.** The
+  heavyweight type formerly named `Client` is **renamed to `Engine`**, and its
+  constructor `NewClient(Options)` is now `NewEngine(Options)`. The name `Client`
+  is now a **lightweight, user-bound handle** built with `NewClient(user any)`.
+  - New `shipeasy.Configure(Options) *Engine`: builds one process-wide `Engine`
+    from the api key + options (first-config-wins, idempotent), stores the
+    optional `Options.Attributes` transform, and fires a background one-shot
+    fetch so the first bound call resolves against real rules without an explicit
+    init. Also registers the engine as the default backing package-level `See()`.
+  - New `Options.Attributes func(any) shipeasy.User`: maps the caller's own user
+    value (any shape) to the Shipeasy attribute map. Default = identity (the
+    value passed to `NewClient` is assumed to already be a `User`/`map[string]any`).
+  - New bound `Client` (built via `NewClient(user)`): runs the `Attributes`
+    transform once at construction and exposes `GetFlag(name)`,
+    `GetFlagOr(name, def)`, `GetFlagDetail(name)`, `GetConfig(name)`,
+    `GetConfigOr(name, def)`, `GetExperiment(name, defaultParams)` and
+    `GetKillswitch(name [, switchKey])` with **no user argument**. It opens no
+    connection and runs no poll timer — it delegates to the configured `Engine`.
+    `NewClient(user)` **panics** if `Configure` was not called first.
+  - New `shipeasy.ConfiguredEngine() *Engine` accessor for the global engine.
+  - New `Engine.GetKillswitch(name, switchKey string) bool` (parity with the
+    Python/Ruby engine): reads the flags blob's `killswitches` map, honouring a
+    named per-key override switch. `flagsBlob` now decodes a `killswitches` map.
+  - The `see()` default wiring is renamed `SetDefaultEngine` /
+    `defaultEngine` (was `SetDefaultClient`); both `NewEngine` and `Configure`
+    register the last-constructed engine as the default.
+  - `NewTestClient`, `NewOfflineClient`, `NewOfflineClientFromSnapshot` keep
+    their names but now return `*Engine`. The OpenFeature provider's
+    `NewProvider` now takes `*shipeasy.Engine`.
+
+  **Migration:** `shipeasy.NewClient(shipeasy.Options{...})` →
+  `shipeasy.NewEngine(shipeasy.Options{...})`; `shipeasy.SetDefaultClient` →
+  `shipeasy.SetDefaultEngine`. Prefer the new
+  `shipeasy.Configure(...)` + `shipeasy.NewClient(user).GetFlag("name")` flow.
+
 ## 0.7.0
 
 - **SSR bootstrap script-tag helpers.** New `Evaluate(user)` batch-evaluate

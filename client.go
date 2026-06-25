@@ -25,7 +25,7 @@ var versionFile string
 // sdk_version on see() error events.
 var SDKVersion = strings.TrimSpace(versionFile)
 
-type Client struct {
+type Engine struct {
 	apiKey       string
 	baseURL      string
 	http         *http.Client
@@ -89,9 +89,20 @@ type Options struct {
 	// allocation changes (a salt change still reshuffles). Absent ⇒ today's
 	// deterministic behaviour. Use NewInMemoryStickyStore or a custom store.
 	StickyStore StickyBucketStore
+	// Attributes is an optional transform from the caller's own user value
+	// (any shape) to the Shipeasy attribute map (User) used for every
+	// evaluation. It is consumed by Configure + the bound Client(user) handle
+	// (see configure.go); NewEngine itself ignores it. Default = identity.
+	Attributes func(any) User
 }
 
-func NewClient(opts Options) *Client {
+// NewEngine constructs the heavyweight evaluation engine: it owns the api key,
+// the blob cache, the poll timer, telemetry, and the see()/error surface. It is
+// the type that used to be called Client (renamed in 0.8.0). Most callers should
+// prefer the package-level Configure(...) + the bound Client(user) handle; reach
+// for NewEngine directly only when you need an explicitly-managed engine
+// instance (e.g. multiple engines in one process, or full control over Init).
+func NewEngine(opts Options) *Engine {
 	base := opts.BaseURL
 	if base == "" {
 		base = defaultBaseURL
@@ -108,7 +119,7 @@ func NewClient(opts Options) *Client {
 	if telemetryURL == "" {
 		telemetryURL = defaultTelemetryURL
 	}
-	c := &Client{
+	c := &Engine{
 		apiKey:            opts.APIKey,
 		baseURL:           base,
 		http:              hc,
@@ -120,13 +131,13 @@ func NewClient(opts Options) *Client {
 		env:               env,
 		seeLimiter:        newSeeLimiter(),
 	}
-	// Register this client as the default backing the package-level see()
+	// Register this engine as the default backing the package-level see()
 	// funcs (last constructed wins — the server-SDK analog of shipeasy({key})).
-	SetDefaultClient(c)
+	SetDefaultEngine(c)
 	return c
 }
 
-func (c *Client) Init(ctx context.Context) error {
+func (c *Engine) Init(ctx context.Context) error {
 	if c.localMode {
 		return nil
 	}
@@ -138,7 +149,7 @@ func (c *Client) Init(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) InitOnce(ctx context.Context) error {
+func (c *Engine) InitOnce(ctx context.Context) error {
 	if c.localMode || c.initialized {
 		return nil
 	}
@@ -149,7 +160,7 @@ func (c *Client) InitOnce(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) Destroy() {
+func (c *Engine) Destroy() {
 	c.once.Do(func() { close(c.stop) })
 }
 
@@ -187,7 +198,7 @@ type FlagDetail struct {
 // resource is emitted exactly once here for steps 2-5, and never for an
 // OVERRIDE (which short-circuits before telemetry, matching GetFlag's override
 // path).
-func (c *Client) GetFlagDetail(name string, user User) FlagDetail {
+func (c *Engine) GetFlagDetail(name string, user User) FlagDetail {
 	// 1. Override wins, short-circuit before telemetry.
 	c.mu.RLock()
 	if v, ok := c.flagOverrides[name]; ok {
@@ -222,14 +233,14 @@ func (c *Client) GetFlagDetail(name string, user User) FlagDetail {
 	return FlagDetail{Value: false, Reason: ReasonDefault}
 }
 
-func (c *Client) GetFlag(name string, user User) bool {
+func (c *Engine) GetFlag(name string, user User) bool {
 	return c.GetFlagDetail(name, user).Value
 }
 
 // GetFlagOr returns def only when the flag CANNOT be evaluated — the client is
 // not initialized (CLIENT_NOT_READY) or the gate is absent (FLAG_NOT_FOUND).
 // When the flag evaluates (including to false), the evaluated value is returned.
-func (c *Client) GetFlagOr(name string, user User, def bool) bool {
+func (c *Engine) GetFlagOr(name string, user User, def bool) bool {
 	d := c.GetFlagDetail(name, user)
 	if d.Reason == ReasonClientNotReady || d.Reason == ReasonFlagNotFound {
 		return def
@@ -239,14 +250,14 @@ func (c *Client) GetFlagOr(name string, user User, def bool) bool {
 
 // GetConfigOr returns the config value, or def when the config key is absent.
 // GetConfig remains the (value, ok) form.
-func (c *Client) GetConfigOr(name string, def any) any {
+func (c *Engine) GetConfigOr(name string, def any) any {
 	if v, ok := c.GetConfig(name); ok {
 		return v
 	}
 	return def
 }
 
-func (c *Client) GetConfig(name string) (any, bool) {
+func (c *Engine) GetConfig(name string) (any, bool) {
 	c.telemetry.emit("config", name)
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -263,7 +274,36 @@ func (c *Client) GetConfig(name string) (any, bool) {
 	return cfg.Value, true
 }
 
-func (c *Client) GetExperiment(name string, user User, defaultParams any) ExperimentResult {
+// GetKillswitch reports whether kill switch name is engaged (the feature is
+// killed). In this SDK kill switches ride the flags blob alongside gates;
+// GetKillswitch reads that same signal at the boundary. With a non-empty
+// switchKey it reports a named per-key override (the dashboard "switches"
+// feature) when present, falling back to the kill switch's top-level value
+// otherwise. Returns false (not killed) when the engine isn't initialized or the
+// switch is absent.
+func (c *Engine) GetKillswitch(name string, switchKey string) bool {
+	c.mu.RLock()
+	flags := c.flags
+	c.mu.RUnlock()
+	if flags == nil {
+		return false
+	}
+	entry, ok := flags.Killswitches[name]
+	if !ok {
+		return false
+	}
+	if switchKey != "" {
+		if v, ok := entry.Switches[switchKey]; ok {
+			return enabled(v)
+		}
+	}
+	if entry.Value != nil {
+		return enabled(entry.Value)
+	}
+	return enabled(entry.Enabled)
+}
+
+func (c *Engine) GetExperiment(name string, user User, defaultParams any) ExperimentResult {
 	c.telemetry.emit("experiment", name)
 	c.mu.RLock()
 	if r, ok := c.expOverrides[name]; ok {
@@ -292,7 +332,7 @@ func (c *Client) GetExperiment(name string, user User, defaultParams any) Experi
 
 // stripPrivate drops every key named in privateAttributes from an outbound
 // properties bag. Returns the input unchanged when there's nothing to strip.
-func (c *Client) stripPrivate(props map[string]any) map[string]any {
+func (c *Engine) stripPrivate(props map[string]any) map[string]any {
 	if len(props) == 0 || len(c.privateAttributes) == 0 {
 		return props
 	}
@@ -312,7 +352,7 @@ func (c *Client) stripPrivate(props map[string]any) map[string]any {
 	return out
 }
 
-func (c *Client) Track(userID, eventName string, properties map[string]any) {
+func (c *Engine) Track(userID, eventName string, properties map[string]any) {
 	if c.localMode {
 		return
 	}
@@ -345,13 +385,13 @@ func (c *Client) Track(userID, eventName string, properties map[string]any) {
 //
 // userID may be a bare user id; for bucketBy experiments or anonymous traffic
 // use LogExposureUser with a full User.
-func (c *Client) LogExposure(userID, experimentName string) {
+func (c *Engine) LogExposure(userID, experimentName string) {
 	c.LogExposureUser(User{"user_id": userID}, experimentName)
 }
 
 // LogExposureUser is LogExposure with a full User (needed for bucketBy
 // experiments or anonymous_id-only traffic).
-func (c *Client) LogExposureUser(user User, experimentName string) {
+func (c *Engine) LogExposureUser(user User, experimentName string) {
 	if c.localMode {
 		return
 	}
@@ -385,7 +425,7 @@ func (c *Client) LogExposureUser(user User, experimentName string) {
 // OnChange registers a listener fired after a background poll loads NEW data (a
 // 200 response, not a 304). It returns a cancel function that deregisters the
 // listener. Listeners never fire in localMode (no polling happens there).
-func (c *Client) OnChange(fn func()) (cancel func()) {
+func (c *Engine) OnChange(fn func()) (cancel func()) {
 	c.mu.Lock()
 	if c.changeListeners == nil {
 		c.changeListeners = map[int]func(){}
@@ -403,7 +443,7 @@ func (c *Client) OnChange(fn func()) (cancel func()) {
 
 // fireListeners invokes every registered change listener, recovering from any
 // panic so one bad listener can't take down the poll goroutine.
-func (c *Client) fireListeners() {
+func (c *Engine) fireListeners() {
 	c.mu.RLock()
 	fns := make([]func(), 0, len(c.changeListeners))
 	for _, fn := range c.changeListeners {
@@ -422,7 +462,7 @@ func (c *Client) fireListeners() {
 	}
 }
 
-func (c *Client) pollLoop() {
+func (c *Engine) pollLoop() {
 	for {
 		select {
 		case <-c.stop:
@@ -444,7 +484,7 @@ func (c *Client) pollLoop() {
 
 // fetchAll fetches both blobs and reports whether either returned NEW data (a
 // 200, not a 304).
-func (c *Client) fetchAll(ctx context.Context) (bool, error) {
+func (c *Engine) fetchAll(ctx context.Context) (bool, error) {
 	interval, flagsChanged, err := c.fetchFlags(ctx)
 	if err != nil {
 		return false, err
@@ -461,7 +501,7 @@ func (c *Client) fetchAll(ctx context.Context) (bool, error) {
 
 // fetchFlags returns (pollInterval, changed, error); changed is true only when
 // the response was a 200 with a fresh blob (not a 304).
-func (c *Client) fetchFlags(ctx context.Context) (int, bool, error) {
+func (c *Engine) fetchFlags(ctx context.Context) (int, bool, error) {
 	status, headers, body, err := c.get(ctx, "/sdk/flags", c.flagsETag)
 	if err != nil {
 		return 0, false, err
@@ -492,7 +532,7 @@ func (c *Client) fetchFlags(ctx context.Context) (int, bool, error) {
 
 // fetchExps returns (changed, error); changed is true only when the response
 // was a 200 with a fresh blob (not a 304).
-func (c *Client) fetchExps(ctx context.Context) (bool, error) {
+func (c *Engine) fetchExps(ctx context.Context) (bool, error) {
 	status, headers, body, err := c.get(ctx, "/sdk/experiments", c.expsETag)
 	if err != nil {
 		return false, err
@@ -516,7 +556,7 @@ func (c *Client) fetchExps(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func (c *Client) get(ctx context.Context, path, etag string) (int, http.Header, []byte, error) {
+func (c *Engine) get(ctx context.Context, path, etag string) (int, http.Header, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
 		return 0, nil, nil, err
@@ -534,7 +574,7 @@ func (c *Client) get(ctx context.Context, path, etag string) (int, http.Header, 
 	return res.StatusCode, res.Header, body, err
 }
 
-func (c *Client) post(path string, body []byte) error {
+func (c *Engine) post(path string, body []byte) error {
 	req, err := http.NewRequest(http.MethodPost, c.baseURL+path, bytes.NewReader(body))
 	if err != nil {
 		return err

@@ -28,7 +28,7 @@ type offlineSnapshot struct {
 // NewOfflineClient reads a snapshot file (see offlineSnapshot) and returns a
 // no-network client preloaded with both blobs. Init/InitOnce/Track are no-ops
 // (localMode), the client is already initialized, and telemetry is disabled.
-func NewOfflineClient(path string) (*Client, error) {
+func NewOfflineClient(path string) (*Engine, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("shipeasy: read offline snapshot %q: %w", path, err)
@@ -59,7 +59,7 @@ func NewOfflineClient(path string) (*Client, error) {
 // flags and experiments are the parsed bodies of /sdk/flags and
 // /sdk/experiments respectively (any value json.Marshal can round-trip into the
 // internal blob shapes). Either may be nil. Init/InitOnce/Track are no-ops.
-func NewOfflineClientFromSnapshot(flags, experiments any) *Client {
+func NewOfflineClientFromSnapshot(flags, experiments any) *Engine {
 	c := newOfflineBase()
 	if flags != nil {
 		if b, err := json.Marshal(flags); err == nil {
@@ -82,8 +82,8 @@ func NewOfflineClientFromSnapshot(flags, experiments any) *Client {
 
 // newOfflineBase returns a localMode, initialized, telemetry-off client with no
 // blobs loaded.
-func newOfflineBase() *Client {
-	return &Client{
+func newOfflineBase() *Engine {
+	return &Engine{
 		baseURL:      defaultBaseURL,
 		pollInterval: 30 * time.Second,
 		stop:         make(chan struct{}),
