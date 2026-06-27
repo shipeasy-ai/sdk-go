@@ -9,6 +9,6 @@ if r.InExperiment {
     render(p["color"])
 }
 
-// On conversion (engine-level Track takes a bare user id):
-shipeasy.ConfiguredEngine().Track("u_123", "{{SUCCESS_EVENT}}", map[string]any{"amount": 49})
+// On conversion — the bound Client derives the user id from its attributes:
+c.Track("{{SUCCESS_EVENT}}", map[string]any{"amount": 49})
 ```

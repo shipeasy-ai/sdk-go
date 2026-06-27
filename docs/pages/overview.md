@@ -46,7 +46,10 @@ There are two layers:
   `NewClient(user)`. It carries no api key, opens no connection, runs no poll
   timer; it delegates every evaluation to the single `Engine` with the bound
   attribute map. Build one per request — it is cheap. Its methods take **no**
-  `user` argument (the user is already bound).
+  `user` argument (the user is already bound): `GetFlag`, `GetFlagOr`,
+  `GetFlagDetail`, `GetConfig`, `GetConfigOr`, `GetExperiment`, `GetKillswitch`,
+  plus `Track(event, props)` and `LogExposure(experiment)` — so an experiment is
+  end-to-end Client-only (bind → `GetExperiment` → `Track`).
 
 > Breaking change in 0.8.0: the heavyweight type formerly named `Client` is now
 > `Engine`, and `NewClient(Options)` is now `NewEngine(Options)`. The name
@@ -59,7 +62,7 @@ There are two layers:
 - [Flags](flags.md) — `GetFlag`, `GetFlagOr`, `GetFlagDetail`.
 - [Configs](configs.md) — `GetConfig`, `GetConfigOr`.
 - [Kill switches](killswitches.md) — `GetKillswitch`.
-- [Experiments](experiments.md) — `GetExperiment`, `ExperimentResult`, `Track`.
+- [Experiments](experiments.md) — `GetExperiment`, `ExperimentResult`, `Client.Track`, `Client.LogExposure`.
 - [i18n](i18n.md) — server SSR loader tag + the browser SDK's `t()`.
 - [Error reporting](error-reporting.md) — the `See()` surface.
 - [Testing](testing.md) — `NewTestClient`, offline clients, `Override*`.

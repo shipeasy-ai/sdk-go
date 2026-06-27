@@ -44,7 +44,9 @@ boot := c.Evaluate(user)
 ## Manual exposure
 
 The server is stateless and never auto-logs exposures. When you actually present
-a treatment, log a single exposure event:
+a treatment, log a single exposure event. From a bound `Client` use
+`c.LogExposure("checkout_button")` (it re-evaluates against the bound
+attributes); the `Engine` forms below are the explicit-user, advanced path:
 
 ```go
 eng := shipeasy.ConfiguredEngine()

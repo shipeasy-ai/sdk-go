@@ -184,3 +184,39 @@ func (c *Client) GetKillswitch(name string, switchKey ...string) bool {
 	}
 	return c.engine.GetKillswitch(name, key)
 }
+
+// unitID derives the bucketing/identity unit for the bound user from the
+// resolved attribute map: user_id wins, then anonymous_id, else empty. It is the
+// id Track stamps on the outbound /collect event.
+func (c *Client) unitID() string {
+	if v, ok := c.attributes["user_id"]; ok && v != nil {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	if v, ok := c.attributes["anonymous_id"]; ok && v != nil {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+// Track records a conversion/metric event for the bound user. The unit id is
+// derived from the bound attribute map (user_id, else anonymous_id) — no user
+// argument is needed. Properties are optional; private attributes are stripped
+// before egress. Forwards to Engine.Track; experiments are end-to-end
+// Client-only (reach for the Engine form only for advanced control).
+func (c *Client) Track(event string, props map[string]any) {
+	c.engine.Track(c.unitID(), event, props)
+}
+
+// LogExposure emits an exposure event for an experiment at the bound user's
+// server-side decision point (parity with the browser's auto-exposure). The
+// experiment is re-evaluated against the bound attribute map; if enrolled, a
+// single exposure event is POSTed. No user argument is needed. Forwards to
+// Engine.LogExposureUser with the bound attributes (so bucketBy and
+// anonymous_id traffic resolve correctly).
+func (c *Client) LogExposure(experiment string) {
+	c.engine.LogExposureUser(c.attributes, experiment)
+}

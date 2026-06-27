@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0
+
+- Add `Track()`/`LogExposure()` to the bound `Client` (experiments are now
+  end-to-end Client-only; the Engine forms remain for advanced use). The bound
+  `Client` already holds the resolved attribute map, so:
+  - `Client.Track(event string, props map[string]any)` derives the unit id from
+    the bound attributes (`user_id`, else `anonymous_id`) and forwards to
+    `Engine.Track`. No user argument.
+  - `Client.LogExposure(experiment string)` re-evaluates the experiment against
+    the bound attributes and forwards to `Engine.LogExposureUser` (so `bucketBy`
+    and `anonymous_id` traffic resolve correctly). No user argument.
+
 ## 0.8.0
 
 - **BREAKING — `configure()` + user-bound `Client(user)` front door.** The
