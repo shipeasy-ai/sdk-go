@@ -6,6 +6,8 @@ Server SDK for [Shipeasy](https://shipeasy.dev). Feature flags, configs, A/B exp
 go get github.com/shipeasy-ai/sdk-go
 ```
 
+**Documentation:** [Installation & configuration](docs/pages/installation.md) (net/http, Gin, Echo, Chi + `Middleware`/`AnonID`) · [full docs](docs/)
+
 Configure once at startup, then build a cheap user-bound `Client` per request:
 
 ```go
