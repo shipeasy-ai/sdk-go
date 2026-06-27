@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "sdk": "go",
+  "placeholders": ["RESOURCE_NAME", "PROFILE", "SUCCESS_EVENT"],
+  "skill": "skill/SKILL.md",
+  "pages": {
+    "overview": "pages/overview.md",
+    "installation": "pages/installation.md",
+    "configuration": "pages/configuration.md",
+    "flags": "pages/flags.md",
+    "configs": "pages/configs.md",
+    "killswitches": "pages/killswitches.md",
+    "experiments": "pages/experiments.md",
+    "i18n": "pages/i18n.md",
+    "error-reporting": "pages/error-reporting.md",
+    "testing": "pages/testing.md",
+    "openfeature": "pages/openfeature.md",
+    "advanced": "pages/advanced.md"
+  },
+  "snippets": {
+    "release": {
+      "flags": "snippets/release/flags.md",
+      "configs": "snippets/release/configs.md",
+      "killswitches": "snippets/release/killswitches.md",
+      "experiments": "snippets/release/experiments.md"
+    },
+    "i18n": {
+      "setup": "snippets/i18n/setup.md",
+      "render": "snippets/i18n/render.md"
+    }
+  }
+}
