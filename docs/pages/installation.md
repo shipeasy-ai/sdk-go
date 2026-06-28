@@ -14,12 +14,11 @@ import shipeasy "github.com/shipeasy-ai/sdk-go"
 
 ## Configure once, bind per request
 
-`Configure` is the front door — call it **once** at process start. It builds one
-process-wide `Engine` (which owns the api key, blob cache, poll timer and
-telemetry) and kicks off a fire-and-forget one-shot fetch, so the first
-`NewClient(user).GetFlag()` resolves against real rules without an explicit init.
-Then build a cheap user-bound `Client` per request and call with **no** user
-argument.
+`Configure` is the front door — call it **once** at process start. It stores the
+api key for the whole process and kicks off a fire-and-forget one-shot fetch, so
+the first `NewClient(user).GetFlag()` resolves against real rules without an
+explicit init. Then build a cheap user-bound `Client` per request and call with
+**no** user argument.
 
 ```go
 shipeasy.Configure(shipeasy.Options{
@@ -40,11 +39,28 @@ c := shipeasy.NewClient(acct)        // acct is your own *Account
 if c.GetFlag("new_checkout") { /* ... */ }
 ```
 
-`Configure` is **first-config-wins** (idempotent) and returns the global
-`*Engine`; `ConfiguredEngine()` fetches it later. `NewClient` **panics** if
-`Configure` has not run. The full `Options` table (`BaseURL`, `Env`,
-`DisableTelemetry`, `PrivateAttributes`, `StickyStore`, …) and the init/poll vs
-one-shot semantics live on the [Configuration](configuration.md) page.
+`Configure` is **first-config-wins** (idempotent). `NewClient` **panics** if
+`Configure` has not run.
+
+### `Options` reference
+
+Every field is optional except `APIKey`.
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `APIKey` | `string` | — | Server key. Authenticates blob fetches and `/collect`. Keep it server-side. |
+| `Attributes` | `func(any) User` | identity | Transform from your user type to a `User`. Applied **once** in `NewClient(user)`. Omit it to pass a `User`/`map[string]any` straight through. |
+| `Poll` | `bool` | `false` | Background poll: an initial fetch plus periodic refresh for a long-running server. Default does a one-shot fetch (serverless-friendly). |
+| `NoInitialFetch` | `bool` | `false` | Suppress even the one-shot fetch (the `init=false` escape hatch). Ignored when `Poll` is true. |
+| `BaseURL` | `string` | `https://edge.shipeasy.dev` | Edge API origin for the flag/experiment blobs. |
+| `Env` | `string` | `"prod"` | Published env reported in usage + `See()` telemetry. |
+| `DisableTelemetry` | `bool` | `false` | Turn off per-evaluation usage beacons. |
+| `TelemetryURL` | `string` | default beacon host | Override the usage beacon host. |
+| `PrivateAttributes` | `[]string` | — | Event-property keys stripped from every outbound `/collect` payload (`Track`, `LogExposure`, `See` extras). |
+| `StickyStore` | `StickyBucketStore` | `nil` | Lock in experiment assignments per bucketing unit. See [Advanced](advanced.md). |
+
+The full init/poll vs one-shot semantics and change listeners live on the
+[Configuration](configuration.md) page.
 
 ### Server key from the environment
 
@@ -211,20 +227,22 @@ func main() {
 }
 ```
 
-## init / poll vs one-shot
+## Background polling for long-running servers
 
-`Configure` does a one-shot background fetch — no polling. A long-running server
-that wants live updates calls `Init` on the configured engine to start the
-background poll loop:
+By default `Configure` does a one-shot background fetch — no polling. A
+long-running server that wants flags to stay fresh without a redeploy opts into
+the background poll loop by setting `Poll: true`. You never start the fetch
+yourself — `Configure` owns the lifecycle either way:
 
 ```go
-eng := shipeasy.ConfiguredEngine()
-if err := eng.Init(context.Background()); err != nil { panic(err) } // start polling
-defer eng.Destroy()
+shipeasy.Configure(shipeasy.Options{
+    APIKey: os.Getenv("SHIPEASY_SERVER_KEY"),
+    Poll:   true, // initial fetch + periodic refresh (default: one-shot)
+})
 ```
 
-See [Configuration](configuration.md) for `Init` / `InitOnce` / `Destroy` and the
-full `Options` reference.
+See [Configuration](configuration.md) for the one-shot vs poll details and change
+listeners (`OnChange`).
 
 ## OpenFeature provider (optional, separate module)
 
@@ -239,4 +257,6 @@ go get github.com/shipeasy-ai/sdk-go/openfeature
 import shipeasyof "github.com/shipeasy-ai/sdk-go/openfeature"
 ```
 
-See the [OpenFeature](openfeature.md) page for wiring.
+After `shipeasy.Configure(...)`, register `shipeasyof.NewGlobalProvider()` — it
+resolves the engine `Configure` built. See the [OpenFeature](openfeature.md) page
+for wiring.

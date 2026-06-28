@@ -24,9 +24,9 @@ if err := chargeCard(order); err != nil {
 }
 ```
 
-`See` works package-level (backed by the last-constructed / configured engine)
-or per-engine: `eng.See(err)...`. Before any engine exists the package-level
-`See` logs a warning and returns a no-op chain — it never panics.
+`See` is package-level — it reports against the configuration from `Configure`,
+so there is no client to thread through. Before `Configure` has run it logs a
+warning and returns a no-op chain — it never panics.
 
 ## Violations (non-exception problems)
 

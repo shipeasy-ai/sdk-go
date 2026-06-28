@@ -29,10 +29,6 @@ Returns the config value, or `def` when the key is absent:
 copy := c.GetConfigOr("billing_copy", map[string]any{"cta": "Buy"})
 ```
 
-## Engine form
-
-```go
-eng := shipeasy.ConfiguredEngine()
-cfg, ok := eng.GetConfig("billing_copy")
-copy := eng.GetConfigOr("billing_copy", map[string]any{"cta": "Buy"})
-```
+Configs are not user-scoped, so the bound `Client` is read the same way for any
+user — they're exposed on `Client` purely so flags, configs, kill switches,
+experiments and tracking all come off one handle.

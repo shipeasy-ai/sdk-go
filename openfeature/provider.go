@@ -45,6 +45,22 @@ func NewProvider(client *shipeasy.Engine) *Provider {
 	return &Provider{client: client}
 }
 
+// NewGlobalProvider is the global form: it resolves the engine that
+// shipeasy.Configure already built, so OpenFeature is wired without naming the
+// Engine:
+//
+//	shipeasy.Configure(shipeasy.Options{APIKey: os.Getenv("SHIPEASY_SERVER_KEY")})
+//	_ = openfeature.SetProviderAndWait(shipeasyof.NewGlobalProvider())
+//
+// It panics if Configure has not been called.
+func NewGlobalProvider() *Provider {
+	client := shipeasy.ConfiguredEngine()
+	if client == nil {
+		panic("shipeasy: NewGlobalProvider() called before Configure({APIKey: ...})")
+	}
+	return &Provider{client: client}
+}
+
 // compile-time assertion that *Provider satisfies the OpenFeature contract.
 var _ openfeature.FeatureProvider = (*Provider)(nil)
 

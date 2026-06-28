@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.10.0
+
+The uniform SDK DX standard (experiment-platform doc 23). The documented surface
+is now exactly `Configure()` (+ the test/offline siblings) and the bound
+`NewClient(user)`; the `Engine` stays public (`NewEngine`) but undocumented.
+
+### Added
+
+- **`ConfigureForTesting(TestOptions{...})`** — no api key, zero network; seeds
+  flags/configs/experiments overrides and registers the global engine so the
+  bound `NewClient(user)` reads them. **Replaces** prior config (unlike
+  `Configure`'s first-config-wins) so a test suite can reconfigure between cases.
+- **`ConfigureForOffline(OfflineOptions{...})`** — evaluates the **real** rules
+  from an in-memory `Snapshot` or a JSON `Path`, with overrides layered on top;
+  also replaces prior config.
+- **`Options{Poll, NoInitialFetch}`** — `Poll: true` starts the background poll
+  internally (you never call `Init` yourself); the default is a one-shot
+  fire-and-forget fetch; `NoInitialFetch` is the init=false escape hatch.
+- **Package-level helpers** so the docs never name the `Engine`: `OverrideFlag`,
+  `OverrideConfig`, `OverrideExperiment`, `ClearOverrides`, `OnChange`,
+  `BootstrapScriptTag`, `I18nScriptTag` — delegating to the configured global.
+- **`openfeature.NewGlobalProvider()`** — resolves the engine built by
+  `Configure()`, so OpenFeature is wired without naming the `Engine`.
+- **`cmd/shipeasy-skill`** — the opt-in installer
+  (`go install …/cmd/shipeasy-skill@latest && shipeasy-skill install` / `print`)
+  that copies the bundled agent skill into a consumer's project.
+
+### Changed
+
+- `README.md` is now **generated** from `docs/` by `internal/genreadme` (which
+  also keeps the embedded `cmd/shipeasy-skill/SKILL.md` in sync); CI enforces it.
+  The docs were rewritten Engine-free around `Configure()` + `NewClient`, with new
+  `metrics/track` + `ops/see` snippet groups and specific placeholders.
+
 ## 0.9.0
 
 - Add `Track()`/`LogExposure()` to the bound `Client` (experiments are now

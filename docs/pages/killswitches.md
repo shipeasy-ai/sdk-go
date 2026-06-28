@@ -25,15 +25,10 @@ overrides. Pass an optional `switchKey` to read a specific one; it falls back to
 the kill switch's top-level value when that key has no override:
 
 ```go
+// Pass the switch variant as the switchKey argument. When that named key has
+// no override configured, the read falls back to the kill switch's top-level
+// value.
 killedForEU := c.GetKillswitch("payments_paused", "eu")
-```
-
-## Engine form
-
-```go
-eng := shipeasy.ConfiguredEngine()
-paused := eng.GetKillswitch("payments_paused", "")     // "" = no named switch
-killedForEU := eng.GetKillswitch("payments_paused", "eu")
 ```
 
 > Note: a gate's own kill state is also folded into gate evaluation — a

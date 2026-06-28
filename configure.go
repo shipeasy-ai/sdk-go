@@ -76,14 +76,25 @@ func Configure(opts Options) *Engine {
 		globalAttrs = attrs
 		globalEngineMu.Unlock()
 
-		// One-shot fetch, fire-and-forget, so bound Clients resolve against real
-		// rules without an explicit init. Long-running servers may call
-		// eng.Init(ctx) themselves to also start the background poll.
-		go func() {
-			if err := eng.InitOnce(context.Background()); err != nil {
-				log.Printf("[shipeasy] Configure initial fetch failed: %v", err)
-			}
-		}()
+		// Fetch lifecycle owned by Configure (the docs never tell a user to call
+		// Init themselves):
+		//   - Poll: initial fetch + periodic background refresh (long-running).
+		//   - default: one-shot fire-and-forget fetch (serverless-friendly).
+		//   - NoInitialFetch: skip even the one-shot (the init=false escape hatch).
+		switch {
+		case opts.Poll:
+			go func() {
+				if err := eng.Init(context.Background()); err != nil {
+					log.Printf("[shipeasy] Configure background poll initial fetch failed: %v", err)
+				}
+			}()
+		case !opts.NoInitialFetch:
+			go func() {
+				if err := eng.InitOnce(context.Background()); err != nil {
+					log.Printf("[shipeasy] Configure initial fetch failed: %v", err)
+				}
+			}()
+		}
 	})
 	return resolveGlobalEngine()
 }

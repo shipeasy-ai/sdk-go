@@ -1,0 +1,49 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ["1.21", "1.22", "1.23"]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Vet + test (base module)
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Vet + test (openfeature module)
+        working-directory: openfeature
+        run: |
+          go vet ./...
+          go test ./...
+
+  readme:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: README + embedded skill are generated from docs/ — check they're in sync
+        run: |
+          go run ./internal/genreadme
+          git diff --exit-code README.md cmd/shipeasy-skill/SKILL.md \
+            || { echo "::error::README.md or cmd/shipeasy-skill/SKILL.md is out of date — run 'go run ./internal/genreadme' and commit."; exit 1; }

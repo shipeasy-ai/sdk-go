@@ -14,10 +14,10 @@ type ExperimentResult struct {
 }
 ```
 
-## Bound `Client` form
+## Evaluating an experiment
 
 ```go
-c := shipeasy.NewClient(acct)
+c := shipeasy.NewClient(acct)            // bind the user once
 
 // defaultParams is returned in r.Params when the user is NOT enrolled
 // (held out, outside allocation, or the experiment isn't running).
@@ -29,16 +29,6 @@ if r.InExperiment {
 } else {
     renderButton("blue") // control / default
 }
-```
-
-## Engine form
-
-The engine method takes an explicit `user`:
-
-```go
-eng := shipeasy.ConfiguredEngine()
-user := shipeasy.User{"user_id": "u_123"}
-r := eng.GetExperiment("checkout_button", user, map[string]any{"color": "blue"})
 ```
 
 When the user is not enrolled, `Group` is `"control"` and `Params` falls back to
@@ -60,20 +50,8 @@ c.Track("{{SUCCESS_EVENT}}", map[string]any{"amount": 49})
 
 `Client.Track(event, props)` takes the event name and an optional property bag.
 This makes an experiment end-to-end Client-only: `NewClient(user)` →
-`GetExperiment` → `Track`.
-
-### Engine form (advanced)
-
-If you're holding an `Engine` directly (not a bound `Client`), the low-level
-form takes an explicit user id:
-
-```go
-eng := shipeasy.ConfiguredEngine()
-eng.Track("u_123", "{{SUCCESS_EVENT}}", map[string]any{"amount": 49})
-```
-
-(`Track` is a no-op on test/offline clients and when the engine is in local
-mode.)
+`GetExperiment` → `Track`. `Track` is fire-and-forget (never blocks your
+response) and a no-op under `ConfigureForTesting` / `ConfigureForOffline`.
 
 ## Manual exposure
 
@@ -87,5 +65,4 @@ c := shipeasy.NewClient(acct)
 c.LogExposure("checkout_button")
 ```
 
-The low-level `Engine.LogExposure` / `Engine.LogExposureUser` forms take an
-explicit user — see [Advanced](advanced.md).
+See [Advanced](advanced.md) for `bucketBy` and sticky bucketing.

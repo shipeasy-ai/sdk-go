@@ -13,8 +13,9 @@ mux := http.NewServeMux()
 http.ListenAndServe(":8080", shipeasy.Middleware(mux))
 
 func handler(w http.ResponseWriter, r *http.Request) {
-    user := shipeasy.User{"anonymous_id": shipeasy.AnonID(r)} // or {"user_id": ...}
-    if c.GetFlag("new_checkout", user) { /* ... */ }
+    // Bind the anon id as the user, then read as usual.
+    c := shipeasy.NewClient(shipeasy.User{"anonymous_id": shipeasy.AnonID(r)}) // or {"user_id": ...}
+    if c.GetFlag("new_checkout") { /* ... */ }
 }
 ```
 
@@ -27,15 +28,13 @@ gates need the id. Lower-level helpers: `MintAnonID`, `ReadOrMintAnonID`,
 ## SSR bootstrap
 
 Emit the request's evaluated flags as a declarative `<script>` tag so the browser
-SDK has them on first paint (no key embedded):
+SDK has them on first paint (no key embedded). Both helpers are package-level and
+run off the global configuration:
 
 ```go
 user := shipeasy.User{"user_id": "u_123"}
-head := c.BootstrapScriptTag(user, shipeasy.BootstrapTagOptions{AnonID: anonID}) +
-    c.I18nScriptTag(clientKey, "en:prod", shipeasy.BootstrapTagOptions{})
-
-// …or get the raw payload (Flags / Configs / Experiments / Killswitches):
-boot := c.Evaluate(user)
+head := shipeasy.BootstrapScriptTag(user, shipeasy.BootstrapTagOptions{AnonID: anonID}) +
+    shipeasy.I18nScriptTag(clientKey, "en:prod", shipeasy.BootstrapTagOptions{})
 ```
 
 `BootstrapTagOptions` accepts `AnonID`, `I18nProfile`, and `BaseURL` (defaults to
@@ -44,23 +43,18 @@ boot := c.Evaluate(user)
 ## Manual exposure
 
 The server is stateless and never auto-logs exposures. When you actually present
-a treatment, log a single exposure event. From a bound `Client` use
-`c.LogExposure("checkout_button")` (it re-evaluates against the bound
-attributes); the `Engine` forms below are the explicit-user, advanced path:
+a treatment, call `LogExposure` on the bound `Client`. It re-evaluates the
+experiment against the bound attributes (so `bucketBy` and `anonymous_id`-only
+traffic resolve correctly); if the user is enrolled, one
+`{type:"exposure", experiment, group, user_id/anonymous_id, ts}` event is POSTed
+to `/collect`:
 
 ```go
-eng := shipeasy.ConfiguredEngine()
-
-// Bare user id:
-eng.LogExposure("u_123", "checkout_button")
-
-// Full User (needed for bucketBy experiments or anonymous_id-only traffic):
-eng.LogExposureUser(shipeasy.User{"anonymous_id": anonID}, "checkout_button")
+c := shipeasy.NewClient(shipeasy.User{"anonymous_id": anonID}) // bind once
+c.LogExposure("checkout_button")
 ```
 
-It re-evaluates the experiment; if the user is enrolled, one
-`{type:"exposure", experiment, group, user_id/anonymous_id, ts}` event is POSTed
-to `/collect`. No-op in local mode or when the user isn't enrolled.
+No-op in local mode (test/offline) or when the user isn't enrolled.
 
 ## Private attributes
 
@@ -80,12 +74,13 @@ shipeasy.Configure(shipeasy.Options{
 
 An experiment can bucket on an attribute other than the individual (e.g.
 `company_id` to keep a whole org on one variant). It's a property of the
-experiment definition; supply the attribute on the `User` and the SDK uses it as
-the bucketing unit (falling back to `user_id ?? anonymous_id`):
+experiment definition; supply the attribute on the user you bind and the SDK uses
+it as the bucketing unit (falling back to `user_id ?? anonymous_id`):
 
 ```go
-r := eng.GetExperiment("new_dashboard",
-    shipeasy.User{"user_id": "u_123", "company_id": "acme"}, nil)
+c := shipeasy.NewClient(shipeasy.User{"user_id": "u_123", "company_id": "acme"})
+r := c.GetExperiment("new_dashboard", nil)
+_ = r
 ```
 
 ## Sticky bucketing
@@ -110,14 +105,15 @@ use. Absent ⇒ purely deterministic bucketing.
 ## Change listeners
 
 Register a callback fired after a background poll loads **new** data (a 200, not
-a 304). It returns a `cancel` func:
+a 304). It is package-level and returns a `cancel` func. It requires
+`Configure(Options{Poll: true})` — no poll runs otherwise:
 
 ```go
-cancel := eng.OnChange(func() {
+cancel := shipeasy.OnChange(func() {
     log.Println("flags/experiments changed; re-render or warm caches")
 })
 defer cancel()
 ```
 
 A panicking listener is recovered and logged so it can't take down the poll loop.
-Test/offline clients never poll, so they never fire listeners.
+Test/offline configurations never poll, so they never fire listeners.

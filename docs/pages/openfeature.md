@@ -2,8 +2,8 @@
 
 The Go SDK ships a first-class [OpenFeature](https://openfeature.dev) provider so
 apps standardized on the CNCF OpenFeature API can plug Shipeasy in as the backing
-flag provider. It is a thin, pure adapter over `*shipeasy.Engine` — no change to
-evaluation, resolution is local against the cached blob.
+flag provider. It is a thin, pure adapter over the configured engine — no change
+to evaluation, resolution is local against the cached blob.
 
 It lives in its own nested Go module so the base SDK doesn't pull in
 `github.com/open-feature/go-sdk` for consumers that don't use it:
@@ -14,6 +14,10 @@ go get github.com/shipeasy-ai/sdk-go/openfeature
 
 ## Wiring
 
+`Configure` Shipeasy as usual, then register `NewGlobalProvider()` — it resolves
+the engine `Configure` already built, so OpenFeature is wired without ever naming
+the engine:
+
 ```go
 import (
     "github.com/open-feature/go-sdk/openfeature"
@@ -21,18 +25,19 @@ import (
     shipeasyof "github.com/shipeasy-ai/sdk-go/openfeature"
 )
 
-client := shipeasy.NewEngine(shipeasy.Options{APIKey: os.Getenv("SHIPEASY_SERVER_KEY")})
-_ = client.Init(ctx)
+// Once, at process start.
+shipeasy.Configure(shipeasy.Options{APIKey: os.Getenv("SHIPEASY_SERVER_KEY")})
 
-_ = openfeature.SetProviderAndWait(shipeasyof.NewProvider(client))
+// Register Shipeasy as OpenFeature's backing provider.
+_ = openfeature.SetProviderAndWait(shipeasyof.NewGlobalProvider())
 
 of := openfeature.NewClient("app")
 on, _ := of.BooleanValue(ctx, "new_checkout", false,
     openfeature.NewEvaluationContext("u1", nil))
 ```
 
-`shipeasyof.NewProvider(*shipeasy.Engine)` returns a `*Provider` whose
-`Metadata().Name` is `"shipeasy"`.
+`NewGlobalProvider()` returns a `*Provider` whose `Metadata().Name` is
+`"shipeasy"`. It **panics** if `Configure` has not been called first.
 
 ## Type mapping
 

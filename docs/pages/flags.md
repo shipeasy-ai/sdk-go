@@ -3,13 +3,13 @@
 A flag ("gate") evaluates to a `bool` for a user. Evaluation is local against the
 cached blob — no network call.
 
-## Bound `Client` form
+## Reading a flag
 
 After `Configure` + `NewClient(user)`, the user is already bound, so the methods
 take no user argument:
 
 ```go
-c := shipeasy.NewClient(acct)
+c := shipeasy.NewClient(acct)            // bind the user once
 
 on := c.GetFlag("new_checkout")          // bool
 
@@ -20,19 +20,6 @@ on = c.GetFlagOr("new_checkout", true)
 d := c.GetFlagDetail("new_checkout")
 _ = d.Value   // bool
 _ = d.Reason  // string, see below
-```
-
-## Low-level `Engine` form
-
-The engine methods take an explicit `user`:
-
-```go
-eng := shipeasy.ConfiguredEngine()
-user := shipeasy.User{"user_id": "u_123", "plan": "pro"}
-
-on := eng.GetFlag("new_checkout", user)
-on = eng.GetFlagOr("new_checkout", user, true)
-d := eng.GetFlagDetail("new_checkout", user)
 ```
 
 ## Boolean semantics & defaults

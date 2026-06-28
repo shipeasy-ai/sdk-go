@@ -94,6 +94,16 @@ type Options struct {
 	// evaluation. It is consumed by Configure + the bound Client(user) handle
 	// (see configure.go); NewEngine itself ignores it. Default = identity.
 	Attributes func(any) User
+	// Poll, when true, makes Configure start the background poll internally
+	// (initial fetch + periodic refresh) for a long-running server, so flags
+	// stay fresh without a redeploy. Default false: Configure does a one-shot
+	// fire-and-forget fetch (serverless-friendly). Either way you never call
+	// Init yourself — Configure owns the fetch lifecycle. NewEngine ignores it.
+	Poll bool
+	// NoInitialFetch, when true, suppresses even the one-shot fetch in Configure
+	// (the init=false escape hatch). Ignored when Poll is true. NewEngine
+	// ignores it. Default false.
+	NoInitialFetch bool
 }
 
 // NewEngine constructs the heavyweight evaluation engine: it owns the api key,
