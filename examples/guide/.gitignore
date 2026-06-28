@@ -1,0 +1,14 @@
+# Binaries
+/guide
+*.exe
+*.out
+
+# Go workspace / vendor
+/vendor/
+go.work
+go.work.sum
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
