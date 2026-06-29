@@ -14,7 +14,7 @@
 #
 # Usage:
 #   1. Refresh the vendored spec when the contract changes:
-#        cp <monorepo>/packages/openapi/openapi.json admin/openapi.json
+#        cp <monorepo>/marketplace/openapi/openapi.json admin/openapi.json
 #   2. Regenerate:
 #        bash scripts/gen_admin.sh
 #   3. Commit `admin/openapi.json` + the regenerated `admin/*.go` files.
@@ -32,7 +32,7 @@ BUILD="$(mktemp -d)"
 trap 'rm -rf "$BUILD"' EXIT
 
 if [[ ! -f "$SPEC" ]]; then
-  echo "error: missing vendored spec at $SPEC — copy it from the monorepo's packages/openapi/openapi.json" >&2
+  echo "error: missing vendored spec at $SPEC — copy it from the monorepo's marketplace/openapi/openapi.json" >&2
   exit 1
 fi
 
