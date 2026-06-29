@@ -86,6 +86,7 @@ func main() {
 | [Testing](https://github.com/shipeasy-ai/sdk-go/blob/main/docs/pages/testing.md) | `ConfigureForTesting` / `ConfigureForOffline`, overrides. |
 | [OpenFeature](https://github.com/shipeasy-ai/sdk-go/blob/main/docs/pages/openfeature.md) | `NewGlobalProvider` (OpenFeature server provider). |
 | [Advanced](https://github.com/shipeasy-ai/sdk-go/blob/main/docs/pages/advanced.md) | Anon-id middleware, private attributes, sticky bucketing, SSR. |
+| [Admin API client](https://github.com/shipeasy-ai/sdk-go/blob/main/docs/pages/admin-api.md) | Optional `admin` module for administering resources (generated from the OpenAPI spec). |
 
 Copy-paste snippets live under [`docs/snippets/`](https://github.com/shipeasy-ai/sdk-go/blob/main/docs/snippets)
 (release · metrics · i18n · ops); an installable agent skill is at

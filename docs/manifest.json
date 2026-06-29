@@ -23,7 +23,8 @@
     "error-reporting": "pages/error-reporting.md",
     "testing": "pages/testing.md",
     "openfeature": "pages/openfeature.md",
-    "advanced": "pages/advanced.md"
+    "advanced": "pages/advanced.md",
+    "admin-api": "pages/admin-api.md"
   },
   "snippets": {
     "release": {

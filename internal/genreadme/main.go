@@ -35,7 +35,7 @@ type manifest struct {
 var pageOrder = []string{
 	"overview", "installation", "configuration", "flags", "configs",
 	"killswitches", "experiments", "i18n", "error-reporting", "testing",
-	"openfeature", "advanced",
+	"openfeature", "advanced", "admin-api",
 }
 
 var pageTitle = map[string]string{
@@ -43,6 +43,7 @@ var pageTitle = map[string]string{
 	"flags": "Feature flags", "configs": "Dynamic configs", "killswitches": "Kill switches",
 	"experiments": "Experiments", "i18n": "Internationalization", "error-reporting": "Error reporting",
 	"testing": "Testing", "openfeature": "OpenFeature", "advanced": "Advanced",
+	"admin-api": "Admin API client",
 }
 
 var pageBlurb = map[string]string{
@@ -58,6 +59,7 @@ var pageBlurb = map[string]string{
 	"testing": "`ConfigureForTesting` / `ConfigureForOffline`, overrides.",
 	"openfeature": "`NewGlobalProvider` (OpenFeature server provider).",
 	"advanced": "Anon-id middleware, private attributes, sticky bucketing, SSR.",
+	"admin-api": "Optional `admin` module for administering resources (generated from the OpenAPI spec).",
 }
 
 func main() {

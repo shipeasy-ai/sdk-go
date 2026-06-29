@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.11.0
+
+- **Optional Admin API client** — a new opt-in `admin` module
+  (`github.com/shipeasy-ai/sdk-go/admin`) for *administering* resources (create
+  gates, start experiments, manage configs/killswitches/universes/metrics/events,
+  …) from server code. It is a raw client **generated from the Shipeasy OpenAPI
+  spec** (1:1 with the REST API — id-based, basis-points, snake_case; no name→id
+  or percent→bp ergonomics, which stay in the CLI/MCP).
+  - A **separate Go module**, so the base SDK never depends on it. Opt in with
+    `go get github.com/shipeasy-ai/sdk-go/admin` (mirrors the nested `openfeature`
+    module).
+  - `admin.NewClient(apiKey, admin.WithProjectID(...))` wires bearer auth +
+    `X-Project-Id` scoping (base URL defaults to `https://shipeasy.ai`); the
+    resource groups are reached as `client.GatesAPI`, `client.ExperimentsAPI`, …
+    (gates, configs, killswitches, experiments, universes, metrics, events,
+    alertRules, attributes, projects, ops, i18n).
+  - Regenerate after a contract change: refresh `admin/openapi.json` then run
+    `bash scripts/gen_admin.sh` (only generated files are rewritten; the
+    `NewClient` shim is preserved). Generator pinned via `openapitools.json`.
+
 ## 0.10.0
 
 The uniform SDK DX standard (experiment-platform doc 23). The documented surface
