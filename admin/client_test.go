@@ -34,10 +34,12 @@ func TestWithBaseURLOverrides(t *testing.T) {
 
 func TestResourceGroupsReachable(t *testing.T) {
 	c := NewClient("k")
-	if c.GatesAPI == nil || c.ExperimentsAPI == nil || c.ConfigsAPI == nil ||
-		c.KillswitchesAPI == nil || c.UniversesAPI == nil || c.MetricsAPI == nil ||
-		c.EventsAPI == nil || c.AlertRulesAPI == nil || c.AttributesAPI == nil ||
-		c.ProjectsAPI == nil || c.OpsAPI == nil || c.I18nAPI == nil {
+	if c.FlagsAPI == nil || c.ExperimentsAPI == nil || c.ConfigsAPI == nil ||
+		c.KillswitchAPI == nil || c.UniversesAPI == nil || c.MetricsAPI == nil ||
+		c.EventsAPI == nil || c.AlertsAPI == nil || c.AttributesAPI == nil ||
+		c.ProjectsAPI == nil || c.OpsAPI == nil || c.ConnectorsAPI == nil ||
+		c.ErrorsAPI == nil || c.KeysAPI == nil || c.DraftsAPI == nil ||
+		c.ProfilesAPI == nil || c.APIKeysAPI == nil {
 		t.Fatal("one or more resource-group services is nil")
 	}
 }

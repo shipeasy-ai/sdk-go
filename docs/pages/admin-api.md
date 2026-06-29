@@ -44,8 +44,8 @@ func main() {
 		// admin.WithBaseURL("http://localhost:3000"),    // defaults to https://shipeasy.ai
 	)
 
-	gates, _, err := client.GatesAPI.ListGates(context.Background()).Execute()
-	_ = gates
+	flags, _, err := client.FlagsAPI.ListGates(context.Background()).Execute()
+	_ = flags
 	_ = err
 }
 ```
@@ -56,15 +56,15 @@ Each resource group is a field on the embedded client whose methods map 1:1 to
 the OpenAPI operations:
 
 ```go
-client.GatesAPI.CreateGate(ctx).Execute()
+client.FlagsAPI.CreateGate(ctx).Execute()
 client.ExperimentsAPI.CreateExperiment(ctx).Execute()
 ```
 
-Available groups: `GatesAPI`, `ConfigsAPI`, `KillswitchesAPI`, `ExperimentsAPI`,
-`UniversesAPI`, `MetricsAPI`, `EventsAPI`, `AlertRulesAPI`, `AttributesAPI`,
-`ProjectsAPI`, `OpsAPI`, `I18nAPI`. The exact method names, request models, and
-response shapes come straight from the spec — explore them with your editor's
-autocomplete.
+Available groups: `FlagsAPI`, `ConfigsAPI`, `KillswitchAPI`, `ExperimentsAPI`,
+`UniversesAPI`, `AttributesAPI`, `MetricsAPI`, `EventsAPI`, `OpsAPI`, `AlertsAPI`,
+`ProjectsAPI`, `ProfilesAPI`, `KeysAPI`, `DraftsAPI`, `ErrorsAPI`, `ConnectorsAPI`,
+`APIKeysAPI`. The exact method names, request models, and response shapes come
+straight from the spec — explore them with your editor's autocomplete.
 
 ## Regenerating
 

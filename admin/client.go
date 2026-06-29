@@ -13,10 +13,11 @@
 package admin
 
 // Client is a configured Admin API client. It embeds the generated *APIClient,
-// so the resource groups are reached directly: client.GatesAPI, client.ConfigsAPI,
-// client.KillswitchesAPI, client.ExperimentsAPI, client.UniversesAPI,
-// client.MetricsAPI, client.EventsAPI, client.AlertRulesAPI, client.AttributesAPI,
-// client.ProjectsAPI, client.OpsAPI, client.I18nAPI.
+// so the resource groups are reached directly: client.FlagsAPI, client.ConfigsAPI,
+// client.KillswitchAPI, client.ExperimentsAPI, client.UniversesAPI,
+// client.MetricsAPI, client.EventsAPI, client.AlertsAPI, client.AttributesAPI,
+// client.OpsAPI, client.ProjectsAPI, client.ConnectorsAPI, client.ErrorsAPI,
+// client.KeysAPI, client.DraftsAPI, client.ProfilesAPI, client.APIKeysAPI.
 type Client struct {
 	*APIClient
 }
@@ -53,7 +54,7 @@ func WithConfiguration(fn func(*Configuration)) Option { return Option(fn) }
 //
 //	client := admin.NewClient(os.Getenv("SHIPEASY_ADMIN_KEY"),
 //	    admin.WithProjectID(os.Getenv("SHIPEASY_PROJECT_ID")))
-//	gates, _, err := client.GatesAPI.ListGates(context.Background()).Execute()
+//	flags, _, err := client.FlagsAPI.ListGates(context.Background()).Execute()
 func NewClient(apiKey string, opts ...Option) *Client {
 	cfg := NewConfiguration()
 	cfg.AddDefaultHeader("Authorization", "Bearer "+apiKey)

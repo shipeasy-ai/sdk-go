@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.1
+
+- **Admin API client regenerated from the canonical OpenAPI spec (2.0.0).** The
+  0.11.0 client was generated from a stale 1.0.0 subset; this regenerates it from
+  the full spec, adding the connectors, errors, keys/api-keys, drafts, profiles,
+  and search endpoints (resource groups now: flags, configs, killswitch,
+  experiments, universes, attributes, metrics, events, ops, alerts, projects,
+  profiles, keys, drafts, errors, connectors, apiKeys). Tag renames mean the
+  generated service fields changed (e.g. `GatesAPI`→`FlagsAPI`,
+  `KillswitchesAPI`→`KillswitchAPI`, `AlertRulesAPI`→`AlertsAPI`).
+
 ## 0.11.0
 
 - **Optional Admin API client** — a new opt-in `admin` module
