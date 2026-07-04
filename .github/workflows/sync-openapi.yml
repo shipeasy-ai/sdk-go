@@ -1,0 +1,74 @@
+name: Sync OpenAPI spec
+
+# Daily regeneration of the optional Admin API client from the canonical
+# OpenAPI spec (shipeasy-ai/shipeasy -> openapi/openapi.json). Refreshes the
+# vendored admin/openapi.json, re-runs scripts/gen_admin.sh, and opens (or
+# updates in place) a single PR into main. If a previous sync PR has not been
+# merged yet, the new run commits onto the same branch instead of opening a
+# second PR.
+
+on:
+  schedule:
+    - cron: "11 5 * * *" # ~05:11 UTC daily
+  workflow_dispatch:
+
+concurrency:
+  group: sync-openapi
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Refresh vendored admin spec from the canonical source
+        run: |
+          curl -fsSL --retry 3 \
+            https://raw.githubusercontent.com/shipeasy-ai/shipeasy/main/openapi/openapi.json \
+            -o admin/openapi.json
+
+      - name: Regenerate the admin client
+        run: bash scripts/gen_admin.sh
+
+      - name: Open or update the sync PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          # Falls back to the default GITHUB_TOKEN. Set the SPEC_SYNC_TOKEN
+          # repo secret to a PAT if you want the PR to trigger tests.yml
+          # (PRs opened with GITHUB_TOKEN do not fire other workflows).
+          token: ${{ secrets.SPEC_SYNC_TOKEN || github.token }}
+          branch: automation/openapi-sync
+          base: main
+          commit-message: "chore: sync admin client with latest OpenAPI spec"
+          title: "chore: sync admin client with latest OpenAPI spec"
+          body: |
+            Automated daily regeneration of the Admin API client from the
+            canonical OpenAPI spec (`shipeasy-ai/shipeasy` -> `openapi/openapi.json`).
+
+            - Refreshes `admin/openapi.json`
+            - Re-runs `scripts/gen_admin.sh`
+
+            This PR is force-updated in place each day until it is merged, so
+            there is only ever one open sync PR. Review the diff and merge to
+            publish.
+          labels: |
+            automation
+            openapi
+          delete-branch: true
+          add-paths: |
+            admin/openapi.json
+            admin/*.go
