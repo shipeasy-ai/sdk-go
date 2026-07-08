@@ -53,7 +53,7 @@ const internalPlaceholderKey = "sdk_client_REPLACE_WITH_SHIPEASY_INTERNAL_ERROR_
 // internalIngestKey is the baked-in credential for the self-monitoring channel.
 // SWAP THIS to the real minted public client key (see internalPlaceholderKey).
 // While it equals the placeholder the channel is fully inert.
-var internalIngestKey = internalPlaceholderKey
+var internalIngestKey = "sdk_client_00bd4608a03e4084922978f9522614d5"
 
 // internalReportOutcome is the fixed outcome half of the stable consequence. The
 // label (the recoverRead operation name, e.g. "GetFlag") is the subject; the
