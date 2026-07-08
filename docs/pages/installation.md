@@ -53,8 +53,10 @@ Every field is optional except `APIKey`.
 | `Poll` | `bool` | `false` | Background poll: an initial fetch plus periodic refresh for a long-running server. Default does a one-shot fetch (serverless-friendly). |
 | `NoInitialFetch` | `bool` | `false` | Suppress even the one-shot fetch (the `init=false` escape hatch). Ignored when `Poll` is true. |
 | `BaseURL` | `string` | `https://api.shipeasy.ai` | Edge API origin for the flag/experiment blobs. |
-| `Env` | `string` | `"prod"` | Published env reported in usage + `See()` telemetry. |
-| `DisableTelemetry` | `bool` | `false` | Turn off per-evaluation usage beacons. |
+| `Env` | `string` | `"prod"` | Published env reported in usage + `See()` telemetry. Also the fallback signal for the environment-derived egress defaults when no `SHIPEASY_ENV`/`APP_ENV`/`GO_ENV`/`ENV` is set. |
+| `IsNetworkEnabled` | `*bool` | env-derived | Master egress switch: when off the SDK makes **no** outbound request at all (fetch, `Track`, exposure, internal reports, telemetry) and reads return code defaults / overrides. `nil` ⇒ ON in production, OFF everywhere else (see [Environment-derived egress](configuration.md#environment-derived-egress-defaults)); pass `&true`/`&false` to force it. |
+| `IsTrackingEnabled` | `*bool` | env-derived | Usage telemetry / any-outside-logging switch. `nil` ⇒ ON in production, OFF elsewhere; forced off whenever `IsNetworkEnabled` is off. Pass `&true`/`&false` to force it. |
+| `DisableTelemetry` | `bool` | `false` | **Deprecated** — prefer `IsTrackingEnabled`. `true` still forces telemetry off; `false` defers to `IsTrackingEnabled` / the env default (it no longer forces telemetry on). |
 | `DisableInternalErrorReporting` | `bool` | `false` | Turn off the SDK's internal self-monitoring channel (SDK bugs "on our end", never your project). See [Configuration](configuration.md#fail-safe-reads--the-loglevel-option). Always off in test/offline mode. |
 | `TelemetryURL` | `string` | default beacon host | Override the usage beacon host. |
 | `PrivateAttributes` | `[]string` | — | Event-property keys stripped from every outbound `/collect` payload (`Track`, exposure, `See` extras). |

@@ -43,7 +43,13 @@ c := shipeasy.NewClient(acct)            // or NewClient(shipeasy.User{"user_id"
 
 `Configure` is first-config-wins and owns the fetch lifecycle (one-shot by
 default; `Poll: true` for a background refresh — you never call `Init` yourself).
-`NewClient` panics if called before `Configure`. Reference:
+`NewClient` panics if called before `Configure`.
+
+**Egress is quiet outside production.** `IsNetworkEnabled`/`IsTrackingEnabled`
+(both `*bool`) default ON in production and OFF everywhere else, so dev/CI runs
+make no outbound request. "Production" = `SHIPEASY_ENV`/`APP_ENV`/`GO_ENV`/`ENV`
+being `production`/`prod`, else the `Env` option (defaults `"prod"`). Force it with
+`x := true; Options{IsNetworkEnabled: &x}`. Reference:
 <https://shipeasy-ai.github.io/sdk-go/pages/configuration.md>
 
 ## Evaluate

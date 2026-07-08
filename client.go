@@ -143,7 +143,35 @@ type Options struct {
 	HTTP    *http.Client
 	// Env is the published env reported in usage telemetry (defaults to "prod").
 	Env string
-	// DisableTelemetry turns off per-evaluation usage beacons (ON by default).
+	// IsNetworkEnabled is the master egress switch: it controls whether the SDK
+	// makes ANY outbound request at all (flag/experiment/config fetch, Track,
+	// exposure logging, internal error reports, AND usage telemetry). When false
+	// the SDK is fully offline — reads return in-code defaults / Override* values
+	// and nothing is sent.
+	//
+	// It is a *bool so an explicit false is distinguishable from "unset" (nil):
+	//   - nil (unset) ⇒ environment-derived DEFAULT (see isProductionEnv): ON in
+	//     production, OFF in every other environment. So a dev machine or CI run of
+	//     an app that embeds the SDK never phones home unless it opts in.
+	//   - &true / &false ⇒ that explicit value, always.
+	//
+	// Test/offline engines (NewTestClient / NewOfflineClient) are always offline
+	// regardless of this option.
+	IsNetworkEnabled *bool
+	// IsTrackingEnabled controls per-evaluation usage telemetry / beacons — the
+	// SDK's "any outside logging". Like IsNetworkEnabled it is a *bool so an
+	// explicit false is distinguishable from "unset" (nil):
+	//   - nil (unset) ⇒ environment-derived DEFAULT: ON in production, OFF
+	//     elsewhere (same inference as IsNetworkEnabled).
+	//   - &true / &false ⇒ that explicit value, always.
+	//
+	// It is forced OFF whenever the network master switch is off. For back-compat
+	// DisableTelemetry: true still forces telemetry off regardless of this option.
+	IsTrackingEnabled *bool
+	// DisableTelemetry turns off per-evaluation usage beacons. DEPRECATED: prefer
+	// IsTrackingEnabled. When true it still forces telemetry OFF (back-compat).
+	// When false (the zero value) telemetry follows IsTrackingEnabled / the
+	// environment-derived default — it no longer forces telemetry ON.
 	DisableTelemetry bool
 	// DisableInternalErrorReporting turns off the SDK's internal self-monitoring
 	// channel (ON by default). When a runtime read swallows one of the SDK's OWN
@@ -211,16 +239,38 @@ func NewEngine(opts Options) *Engine {
 	if telemetryURL == "" {
 		telemetryURL = defaultTelemetryURL
 	}
+
+	// Environment-derived egress defaults. Both the master network switch and
+	// usage telemetry default ON in production and OFF everywhere else; an
+	// explicit option (a non-nil *bool) always overrides.
+	prod := isProductionEnv(env)
+	// Master network gate. nil ⇒ prod-on default; else the explicit value. When
+	// off, the engine runs in localMode: no fetch, no Track, no exposure, no
+	// see() egress, no poll, no internal report, no telemetry.
+	networkEnabled := prod
+	if opts.IsNetworkEnabled != nil {
+		networkEnabled = *opts.IsNetworkEnabled
+	}
+	// Telemetry gate. Off whenever the network is off; else honour an explicit
+	// IsTrackingEnabled, else default prod-on. DisableTelemetry: true still forces
+	// it off (deprecated back-compat).
+	trackingEnabled := prod
+	if opts.IsTrackingEnabled != nil {
+		trackingEnabled = *opts.IsTrackingEnabled
+	}
+	telemetryDisabled := !networkEnabled || !trackingEnabled || opts.DisableTelemetry
+
 	c := &Engine{
 		apiKey:            opts.APIKey,
 		baseURL:           base,
 		http:              hc,
 		pollInterval:      30 * time.Second,
 		stop:              make(chan struct{}),
-		telemetry:         newTelemetry(telemetryURL, opts.APIKey, "server", env, opts.DisableTelemetry, hc),
+		telemetry:         newTelemetry(telemetryURL, opts.APIKey, "server", env, telemetryDisabled, hc),
 		privateAttributes: opts.PrivateAttributes,
 		stickyStore:       opts.StickyStore,
 		env:               env,
+		localMode:         !networkEnabled,
 		seeLimiter:        newSeeLimiter(),
 		logLevel:          resolveLogLevel(opts.LogLevel),
 	}
@@ -228,11 +278,12 @@ func NewEngine(opts Options) *Engine {
 	// funcs (last constructed wins — the server-SDK analog of shipeasy({key})).
 	SetDefaultEngine(c)
 	// Wire the internal self-monitoring channel (SDK bugs "on our end"). Enabled
-	// by default; opt out via DisableInternalErrorReporting. NewEngine builds a
-	// real (networking) engine — the test/offline engines are struct literals
-	// that bypass this, so the channel stays inert there. Mirrors setLogLevel /
+	// by default; opt out via DisableInternalErrorReporting. Forced off when the
+	// network is disabled (localMode / non-prod default). NewEngine builds a real
+	// (networking) engine — the test/offline engines are struct literals that
+	// bypass this, so the channel stays inert there. Mirrors setLogLevel /
 	// SetDefaultEngine carrying process-wide context from the constructor.
-	setInternalReportContext(SDKVersion, !opts.DisableInternalErrorReporting)
+	setInternalReportContext(SDKVersion, networkEnabled && !opts.DisableInternalErrorReporting)
 	return c
 }
 

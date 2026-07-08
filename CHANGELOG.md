@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.15.0 — 2026-07-08
+
+### Environment-derived network & telemetry (egress) defaults
+
+The SDK is now **quiet by default outside production**: an app that embeds it
+makes **no outbound request** from a dev machine or CI unless it opts in. Two new
+`Options` fields (both `*bool`, so an explicit `false` is distinguishable from an
+unset `nil`) control egress:
+
+- **`IsNetworkEnabled`** — master switch. When off the SDK is fully offline: no
+  flag/experiment/config fetch, no `Track`, no exposure logging, no internal error
+  reports, and no usage telemetry. Reads return your in-code defaults and any
+  `Override*` values. It flows into the existing offline (`localMode`) machinery.
+- **`IsTrackingEnabled`** — usage telemetry / "any outside logging" only. Forced
+  off whenever the network is off.
+
+Both **default ON in production and OFF in every other environment**. "Production"
+is decided by `isProductionEnv`, checking a native env var in order —
+`SHIPEASY_ENV`, then `APP_ENV`, then `GO_ENV`, then `ENV` (`production`/`prod`,
+case-insensitive) — and, when none is set, falling back to the SDK's own `Env`
+option (which already defaults to `"prod"`). An explicit option always overrides
+the default; test/offline configs stay offline regardless.
+
+**BEHAVIOUR CHANGE.** Before 0.15.0 the SDK always made network calls and always
+sent usage telemetry (unless `DisableTelemetry: true`). Now, in a non-production
+environment, it is offline by default. To **restore the old always-on behaviour**,
+either declare the runtime production for egress by setting `SHIPEASY_ENV=production`
+(or `APP_ENV`/`GO_ENV`/`ENV`), or pass the switches explicitly:
+
+```go
+on := true
+shipeasy.Configure(shipeasy.Options{
+    APIKey:            os.Getenv("SHIPEASY_SERVER_KEY"),
+    IsNetworkEnabled:  &on,
+    IsTrackingEnabled: &on,
+})
+```
+
+`DisableTelemetry` is now **deprecated** in favour of `IsTrackingEnabled`:
+`true` still forces telemetry off, but `false` (the zero value) no longer forces
+it on — it defers to `IsTrackingEnabled` / the environment default.
+
 ## 0.14.0 — 2026-07-08
 
 ### BREAKING — experiments are now read by universe, not by name

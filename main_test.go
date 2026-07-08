@@ -27,7 +27,15 @@ import (
 // HTTP transport (no real network), then reset to the placeholder via
 // t.Cleanup(resetInternalReportForTest) — so this global default does not break
 // them; it only ensures every OTHER test sees an inert channel.
+// It also declares the test suite production-equivalent for EGRESS by setting
+// SHIPEASY_ENV=production before any test runs. The environment-derived egress
+// defaults (see env.go / Options.IsNetworkEnabled) turn the SDK OFF by default
+// outside production; without this the whole suite would run in localMode (no
+// fetch, no Track, no telemetry) and every test that exercises a network path
+// would break. Tests that specifically assert the dev/prod branching override
+// SHIPEASY_ENV locally with t.Setenv (see env_test.go).
 func TestMain(m *testing.M) {
 	internalIngestKey = internalPlaceholderKey
+	_ = os.Setenv("SHIPEASY_ENV", "production")
 	os.Exit(m.Run())
 }

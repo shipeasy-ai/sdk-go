@@ -116,6 +116,57 @@ shipeasy.Configure(shipeasy.Options{
 })
 ```
 
+## Environment-derived egress defaults
+
+The SDK is **quiet by default outside production**. Two `*bool` options control
+outbound traffic, and both default ON in production and OFF in every other
+environment, so an app that embeds the SDK never phones home from a dev machine
+or CI unless it opts in:
+
+- **`IsNetworkEnabled`** — the master switch. When off the SDK is fully offline:
+  it makes **no** outbound request at all (flag/experiment/config fetch, `Track`,
+  exposure logging, internal error reports, **and** usage telemetry). Reads return
+  your in-code defaults and any `Override*` values.
+- **`IsTrackingEnabled`** — usage telemetry / "any outside logging" only. Forced
+  off whenever `IsNetworkEnabled` is off.
+
+Both are `*bool` so an explicit `false` is distinguishable from "unset" (`nil`):
+`nil` uses the environment-derived default; a non-nil value always wins.
+
+**How "production" is decided** (`is_production_env`, mirrors every Shipeasy SDK):
+
+1. A native runtime env var, checked in order: `SHIPEASY_ENV`, then `APP_ENV`,
+   then `GO_ENV`, then `ENV`. A value of `production`/`prod` (case-insensitive) ⇒
+   production; any other present value (`development`/`staging`/`test`/…) ⇒ not
+   production.
+2. If none of those are set, fall back to the SDK's own `Env` option — which
+   already defaults to `"prod"`, so a real production deploy stays ON by default
+   while `Env: "dev"` stays quiet.
+
+**Behaviour change (0.15.0):** before this release the SDK always made network
+calls and always sent usage telemetry (unless `DisableTelemetry: true`). Now, in a
+non-production environment, it is offline by default. To **restore the old
+always-on behaviour**, either set a production env var or pass the switch
+explicitly:
+
+```go
+// Option A — declare the runtime production for egress:
+//   export SHIPEASY_ENV=production
+//
+// Option B — force it on regardless of environment:
+netOn := true
+shipeasy.Configure(shipeasy.Options{
+    APIKey:            os.Getenv("SHIPEASY_SERVER_KEY"),
+    IsNetworkEnabled:  &netOn, // make every outbound request (fetch/Track/…) again
+    IsTrackingEnabled: &netOn, // and re-enable usage telemetry
+})
+```
+
+To go the other way — force the SDK fully offline even in production — pass
+`IsNetworkEnabled: &off` (with `off := false`). Test/offline configs
+(`ConfigureForTesting` / `ConfigureForOffline`) are always offline regardless of
+these options.
+
 ## Env-var convention
 
 The SDK authenticates with your project's **server** key. Read it from the
