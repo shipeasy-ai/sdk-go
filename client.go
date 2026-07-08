@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const defaultBaseURL = "https://edge.shipeasy.dev"
+const defaultBaseURL = "https://api.shipeasy.ai"
 
 //go:embed VERSION
 var versionFile string

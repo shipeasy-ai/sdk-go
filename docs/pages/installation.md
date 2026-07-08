@@ -52,7 +52,7 @@ Every field is optional except `APIKey`.
 | `Attributes` | `func(any) User` | identity | Transform from your user type to a `User`. Applied **once** in `NewClient(user)`. Omit it to pass a `User`/`map[string]any` straight through. |
 | `Poll` | `bool` | `false` | Background poll: an initial fetch plus periodic refresh for a long-running server. Default does a one-shot fetch (serverless-friendly). |
 | `NoInitialFetch` | `bool` | `false` | Suppress even the one-shot fetch (the `init=false` escape hatch). Ignored when `Poll` is true. |
-| `BaseURL` | `string` | `https://edge.shipeasy.dev` | Edge API origin for the flag/experiment blobs. |
+| `BaseURL` | `string` | `https://api.shipeasy.ai` | Edge API origin for the flag/experiment blobs. |
 | `Env` | `string` | `"prod"` | Published env reported in usage + `See()` telemetry. |
 | `DisableTelemetry` | `bool` | `false` | Turn off per-evaluation usage beacons. |
 | `TelemetryURL` | `string` | default beacon host | Override the usage beacon host. |
