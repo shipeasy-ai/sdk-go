@@ -71,6 +71,31 @@ defer cancel()
 the listener never fires. A panicking listener is recovered and logged so it
 can't take down the poll loop.
 
+## Fail-safe reads & the `LogLevel` option
+
+Reads never panic into your request path. Every runtime read on the bound
+`Client` — `GetFlag`, `GetFlagOr`, `GetFlagDetail`, `GetConfig`, `GetConfigOr`,
+`GetKillswitch`, `GetExperiment` — is wrapped so that even an unexpected panic is
+caught, logged, and the read returns its documented safe default (`GetFlag` →
+`false`, `GetConfig` → `(nil, false)`, `GetExperiment` → the control result with
+your `defaultParams`, `GetKillswitch` → `false`). You never need a `recover()`
+around a read. (Setup mistakes still fail loudly — `NewClient(user)` before
+`Configure` panics on purpose.)
+
+`Options.LogLevel` controls the SDK's own log verbosity. The SDK logs its
+fire-and-forget failures (a failed `Track`/`LogExposure`/`see()` POST, a poll
+error, or a recovered panic) with a `[shipeasy] ` prefix. Levels, from quietest
+to loudest, are `silent`, `error`, `warn`, `info`, `debug`; a message at level L
+is printed only when your configured level is at least L. The default is `warn`;
+an empty or unrecognized value also resolves to `warn`.
+
+```go
+shipeasy.Configure(shipeasy.Options{
+    APIKey:   os.Getenv("SHIPEASY_SERVER_KEY"),
+    LogLevel: "silent", // fully quiet the SDK's background chatter in prod
+})
+```
+
 ## Env-var convention
 
 The SDK authenticates with your project's **server** key. Read it from the

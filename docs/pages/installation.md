@@ -58,6 +58,7 @@ Every field is optional except `APIKey`.
 | `TelemetryURL` | `string` | default beacon host | Override the usage beacon host. |
 | `PrivateAttributes` | `[]string` | — | Event-property keys stripped from every outbound `/collect` payload (`Track`, `LogExposure`, `See` extras). |
 | `StickyStore` | `StickyBucketStore` | `nil` | Lock in experiment assignments per bucketing unit. See [Advanced](advanced.md). |
+| `LogLevel` | `string` | `"warn"` | SDK log verbosity: `silent`, `error`, `warn`, `info`, `debug`. Gates the `[shipeasy] ` background-failure logs. See [Configuration](configuration.md#fail-safe-reads--the-loglevel-option). |
 
 The full init/poll vs one-shot semantics and change listeners live on the
 [Configuration](configuration.md) page.

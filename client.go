@@ -67,6 +67,67 @@ type Engine struct {
 	// so a later weight/allocation change can't reshuffle an enrolled user
 	// (a salt change still reshuffles). Absent ⇒ deterministic, unchanged.
 	stickyStore StickyBucketStore
+
+	// logLevel is the resolved verbosity threshold (one of the logLevel* keys).
+	// A message logged at level L via logf is emitted iff logRank[level] <=
+	// logRank[logLevel]. Set in NewEngine (defaults to "warn" when empty).
+	logLevel string
+}
+
+// Log levels for Options.LogLevel / Engine.logf, ordered
+// silent < error < warn < info < debug. A message at level L is emitted iff the
+// configured level is >= L. Empty or unknown values resolve to the default,
+// "warn".
+const (
+	LogLevelSilent = "silent"
+	LogLevelError  = "error"
+	LogLevelWarn   = "warn"
+	LogLevelInfo   = "info"
+	LogLevelDebug  = "debug"
+
+	defaultLogLevel = LogLevelWarn
+)
+
+// logRank maps a log level to its numeric verbosity. Higher = noisier.
+var logRank = map[string]int{
+	LogLevelSilent: 0,
+	LogLevelError:  1,
+	LogLevelWarn:   2,
+	LogLevelInfo:   3,
+	LogLevelDebug:  4,
+}
+
+// resolveLogLevel normalizes an Options.LogLevel value: empty or unknown → the
+// default ("warn").
+func resolveLogLevel(level string) string {
+	if _, ok := logRank[level]; ok {
+		return level
+	}
+	return defaultLogLevel
+}
+
+// logf emits a "[shipeasy] "-prefixed message via the standard logger only when
+// the message's level is at or below the engine's configured verbosity. It is
+// the single leveled gate every production log call site funnels through so the
+// LogLevel option can silence network/decode chatter.
+func (c *Engine) logf(level, format string, args ...any) {
+	if logRank[level] <= logRank[c.logLevel] {
+		log.Printf("[shipeasy] "+format, args...)
+	}
+}
+
+// pkgDefaultLogLevel backs pkgLogf, the leveled logger for package-level call
+// sites that run before any Engine exists (the pre-engine See() no-op and
+// Configure's fetch goroutines). It defaults to "warn", matching the engine
+// default.
+var pkgDefaultLogLevel = defaultLogLevel
+
+// pkgLogf is the engine-less analog of Engine.logf for package-level call sites
+// that fire before an Engine is available.
+func pkgLogf(level, format string, args ...any) {
+	if logRank[level] <= logRank[pkgDefaultLogLevel] {
+		log.Printf("[shipeasy] "+format, args...)
+	}
 }
 
 type Options struct {
@@ -104,6 +165,13 @@ type Options struct {
 	// (the init=false escape hatch). Ignored when Poll is true. NewEngine
 	// ignores it. Default false.
 	NoInitialFetch bool
+	// LogLevel sets the SDK's own log verbosity. One of "silent", "error",
+	// "warn", "info", "debug" (ordered silent < error < warn < info < debug); a
+	// message at level L is logged iff LogLevel >= L. Empty or unknown values
+	// resolve to the default, "warn". Used to quiet the SDK's fire-and-forget
+	// network/decode chatter (Track/LogExposure/see()/poll failures) in
+	// production without wrapping the standard logger.
+	LogLevel string
 }
 
 // NewEngine constructs the heavyweight evaluation engine: it owns the api key,
@@ -140,6 +208,7 @@ func NewEngine(opts Options) *Engine {
 		stickyStore:       opts.StickyStore,
 		env:               env,
 		seeLimiter:        newSeeLimiter(),
+		logLevel:          resolveLogLevel(opts.LogLevel),
 	}
 	// Register this engine as the default backing the package-level see()
 	// funcs (last constructed wins — the server-SDK analog of shipeasy({key})).
@@ -203,12 +272,33 @@ type FlagDetail struct {
 	Reason string
 }
 
+// recoverRead is a defensive last resort for the RUNTIME read methods. Deferred
+// with a pointer to the method's named return, it catches any unexpected panic
+// in the hot read path, logs it at "error", and leaves the named return at its
+// already-set documented safe default so the panic never reaches the caller.
+// The read paths are panic-safe by construction (comma-ok everywhere); this only
+// exists so a future regression can never take down a request.
+func recoverRead[T any](c *Engine, name string, def *T) {
+	if r := recover(); r != nil {
+		c.logf(LogLevelError, "%s panicked, returning safe default: %v", name, r)
+		_ = def // def already holds the documented safe default
+	}
+}
+
 // GetFlagDetail evaluates a flag and reports why. The reason is computed at the
 // boundary without touching the canonical evaluator. Telemetry for the "gate"
 // resource is emitted exactly once here for steps 2-5, and never for an
 // OVERRIDE (which short-circuits before telemetry, matching GetFlag's override
-// path).
-func (c *Engine) GetFlagDetail(name string, user User) FlagDetail {
+// path). It never panics into the caller: any unexpected panic is recovered,
+// logged, and the documented safe default (Value:false, Reason:CLIENT_NOT_READY)
+// is returned.
+func (c *Engine) GetFlagDetail(name string, user User) (result FlagDetail) {
+	result = FlagDetail{Value: false, Reason: ReasonClientNotReady}
+	defer recoverRead(c, "GetFlagDetail", &result)
+	return c.getFlagDetail(name, user)
+}
+
+func (c *Engine) getFlagDetail(name string, user User) FlagDetail {
 	// 1. Override wins, short-circuit before telemetry.
 	c.mu.RLock()
 	if v, ok := c.flagOverrides[name]; ok {
@@ -243,14 +333,21 @@ func (c *Engine) GetFlagDetail(name string, user User) FlagDetail {
 	return FlagDetail{Value: false, Reason: ReasonDefault}
 }
 
-func (c *Engine) GetFlag(name string, user User) bool {
+// GetFlag evaluates a gate. It never panics into the caller: an unexpected panic
+// is recovered, logged, and the documented safe default (false) is returned.
+func (c *Engine) GetFlag(name string, user User) (result bool) {
+	defer recoverRead(c, "GetFlag", &result)
 	return c.GetFlagDetail(name, user).Value
 }
 
 // GetFlagOr returns def only when the flag CANNOT be evaluated — the client is
 // not initialized (CLIENT_NOT_READY) or the gate is absent (FLAG_NOT_FOUND).
 // When the flag evaluates (including to false), the evaluated value is returned.
-func (c *Engine) GetFlagOr(name string, user User, def bool) bool {
+// It never panics into the caller: an unexpected panic is recovered, logged, and
+// def is returned.
+func (c *Engine) GetFlagOr(name string, user User, def bool) (result bool) {
+	result = def
+	defer recoverRead(c, "GetFlagOr", &result)
 	d := c.GetFlagDetail(name, user)
 	if d.Reason == ReasonClientNotReady || d.Reason == ReasonFlagNotFound {
 		return def
@@ -259,15 +356,27 @@ func (c *Engine) GetFlagOr(name string, user User, def bool) bool {
 }
 
 // GetConfigOr returns the config value, or def when the config key is absent.
-// GetConfig remains the (value, ok) form.
-func (c *Engine) GetConfigOr(name string, def any) any {
+// GetConfig remains the (value, ok) form. It never panics into the caller: an
+// unexpected panic is recovered, logged, and def is returned.
+func (c *Engine) GetConfigOr(name string, def any) (result any) {
+	result = def
+	defer recoverRead(c, "GetConfigOr", &result)
 	if v, ok := c.GetConfig(name); ok {
 		return v
 	}
 	return def
 }
 
-func (c *Engine) GetConfig(name string) (any, bool) {
+// GetConfig returns a dynamic config value. It never panics into the caller: an
+// unexpected panic is recovered, logged, and the documented safe default
+// (nil, false) is returned.
+func (c *Engine) GetConfig(name string) (value any, ok bool) {
+	value, ok = nil, false
+	defer recoverRead(c, "GetConfig", &value)
+	return c.getConfig(name)
+}
+
+func (c *Engine) getConfig(name string) (any, bool) {
 	c.telemetry.emit("config", name)
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -290,8 +399,14 @@ func (c *Engine) GetConfig(name string) (any, bool) {
 // switchKey it reports a named per-key override (the dashboard "switches"
 // feature) when present, falling back to the kill switch's top-level value
 // otherwise. Returns false (not killed) when the engine isn't initialized or the
-// switch is absent.
-func (c *Engine) GetKillswitch(name string, switchKey string) bool {
+// switch is absent. It never panics into the caller: an unexpected panic is
+// recovered, logged, and the documented safe default (false) is returned.
+func (c *Engine) GetKillswitch(name string, switchKey string) (result bool) {
+	defer recoverRead(c, "GetKillswitch", &result)
+	return c.getKillswitch(name, switchKey)
+}
+
+func (c *Engine) getKillswitch(name string, switchKey string) bool {
 	c.mu.RLock()
 	flags := c.flags
 	c.mu.RUnlock()
@@ -313,7 +428,17 @@ func (c *Engine) GetKillswitch(name string, switchKey string) bool {
 	return enabled(entry.Enabled)
 }
 
-func (c *Engine) GetExperiment(name string, user User, defaultParams any) ExperimentResult {
+// GetExperiment evaluates an experiment for user. It never panics into the
+// caller: an unexpected panic is recovered, logged, and the documented safe
+// default (InExperiment:false, Group:"control", Params:defaultParams) is
+// returned.
+func (c *Engine) GetExperiment(name string, user User, defaultParams any) (result ExperimentResult) {
+	result = ExperimentResult{InExperiment: false, Group: "control", Params: defaultParams}
+	defer recoverRead(c, "GetExperiment", &result)
+	return c.getExperiment(name, user, defaultParams)
+}
+
+func (c *Engine) getExperiment(name string, user User, defaultParams any) ExperimentResult {
 	c.telemetry.emit("experiment", name)
 	c.mu.RLock()
 	if r, ok := c.expOverrides[name]; ok {
@@ -381,7 +506,7 @@ func (c *Engine) Track(userID, eventName string, properties map[string]any) {
 	}
 	go func() {
 		if err := c.post("/collect", body); err != nil {
-			log.Printf("[shipeasy] track failed: %v", err)
+			c.logf(LogLevelWarn, "track failed: %v", err)
 		}
 	}()
 }
@@ -427,7 +552,7 @@ func (c *Engine) LogExposureUser(user User, experimentName string) {
 	}
 	go func() {
 		if err := c.post("/collect", body); err != nil {
-			log.Printf("[shipeasy] logExposure failed: %v", err)
+			c.logf(LogLevelWarn, "logExposure failed: %v", err)
 		}
 	}()
 }
@@ -464,7 +589,7 @@ func (c *Engine) fireListeners() {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[shipeasy] change listener panicked: %v", r)
+					c.logf(LogLevelError, "change listener panicked: %v", r)
 				}
 			}()
 			fn()
@@ -482,7 +607,7 @@ func (c *Engine) pollLoop() {
 			changed, err := c.fetchAll(ctx)
 			cancel()
 			if err != nil {
-				log.Printf("[shipeasy] poll failed: %v", err)
+				c.logf(LogLevelWarn, "poll failed: %v", err)
 				continue
 			}
 			if changed && !c.localMode {

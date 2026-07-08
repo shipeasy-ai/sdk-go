@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.12.0 — 2026-07-07
+
+- **Fail-safe runtime reads.** Every runtime read now catches an unexpected
+  panic and returns its documented safe default instead of unwinding into the
+  caller. This covers `Engine.GetFlag`/`GetFlagOr`/`GetFlagDetail`/`GetConfig`/
+  `GetConfigOr`/`GetKillswitch`/`GetExperiment` and the bound `Client`
+  equivalents. The read paths were already panic-safe by construction; this is a
+  defensive last resort so a future regression can never take down a request.
+  Setup/lifecycle panics are unchanged — `NewClient(user)` before `Configure()`,
+  the `requireGlobal(...)` package helpers, and `openfeature.NewGlobalProvider()`
+  still fail loudly, since those are boot-time misconfiguration.
+- **New `Options.LogLevel`.** Sets the SDK's own log verbosity: `"silent"`,
+  `"error"`, `"warn"`, `"info"`, or `"debug"` (ordered
+  `silent < error < warn < info < debug`; a message at level L is logged iff
+  `LogLevel >= L`). Empty or unknown values resolve to the default, `"warn"`. Use
+  it to quiet the SDK's fire-and-forget network/decode chatter
+  (`Track`/`LogExposure`/`see()`/poll failures) in production. Every internal
+  `[shipeasy] …` log now routes through this leveled gate.
+
 ## 0.11.1
 
 - **Admin API client regenerated from the canonical OpenAPI spec (2.0.0).** The

@@ -2,7 +2,6 @@ package shipeasy
 
 import (
 	"context"
-	"log"
 	"sync"
 )
 
@@ -45,7 +44,7 @@ var (
 			// Caller passed something that isn't already an attribute map and
 			// didn't configure a transform. We can't bucket it, so degrade to an
 			// empty map (evaluations behave as for an unidentified user) and warn.
-			log.Printf("[shipeasy] NewClient called with a non-map user and no Attributes transform configured — pass a shipeasy.User or configure Options.Attributes")
+			pkgLogf(LogLevelWarn, "NewClient called with a non-map user and no Attributes transform configured — pass a shipeasy.User or configure Options.Attributes")
 			return User{}
 		}
 	}
@@ -85,13 +84,13 @@ func Configure(opts Options) *Engine {
 		case opts.Poll:
 			go func() {
 				if err := eng.Init(context.Background()); err != nil {
-					log.Printf("[shipeasy] Configure background poll initial fetch failed: %v", err)
+					eng.logf(LogLevelWarn, "Configure background poll initial fetch failed: %v", err)
 				}
 			}()
 		case !opts.NoInitialFetch:
 			go func() {
 				if err := eng.InitOnce(context.Background()); err != nil {
-					log.Printf("[shipeasy] Configure initial fetch failed: %v", err)
+					eng.logf(LogLevelWarn, "Configure initial fetch failed: %v", err)
 				}
 			}()
 		}
@@ -153,42 +152,67 @@ func NewClient(user any) *Client {
 	return &Client{attributes: attrs, engine: eng}
 }
 
-// GetFlag evaluates a gate for the bound user.
-func (c *Client) GetFlag(name string) bool {
+// GetFlag evaluates a gate for the bound user. Never panics into the caller: an
+// unexpected panic is recovered, logged, and false is returned.
+func (c *Client) GetFlag(name string) (result bool) {
+	defer recoverRead(c.engine, "Client.GetFlag", &result)
 	return c.engine.GetFlag(name, c.attributes)
 }
 
 // GetFlagOr evaluates a gate for the bound user, returning def only when the
-// flag cannot be evaluated (engine not ready, or the gate is absent).
-func (c *Client) GetFlagOr(name string, def bool) bool {
+// flag cannot be evaluated (engine not ready, or the gate is absent). Never
+// panics into the caller: an unexpected panic is recovered, logged, and def is
+// returned.
+func (c *Client) GetFlagOr(name string, def bool) (result bool) {
+	result = def
+	defer recoverRead(c.engine, "Client.GetFlagOr", &result)
 	return c.engine.GetFlagOr(name, c.attributes, def)
 }
 
-// GetFlagDetail evaluates a gate for the bound user and reports why.
-func (c *Client) GetFlagDetail(name string) FlagDetail {
+// GetFlagDetail evaluates a gate for the bound user and reports why. Never panics
+// into the caller: an unexpected panic is recovered, logged, and the safe
+// default (Value:false, Reason:CLIENT_NOT_READY) is returned.
+func (c *Client) GetFlagDetail(name string) (result FlagDetail) {
+	result = FlagDetail{Value: false, Reason: ReasonClientNotReady}
+	defer recoverRead(c.engine, "Client.GetFlagDetail", &result)
 	return c.engine.GetFlagDetail(name, c.attributes)
 }
 
 // GetConfig returns a dynamic config value (configs are not user-scoped; this is
-// exposed on Client for one-stop ergonomics and forwards to the engine).
-func (c *Client) GetConfig(name string) (any, bool) {
+// exposed on Client for one-stop ergonomics and forwards to the engine). Never
+// panics into the caller: an unexpected panic is recovered, logged, and
+// (nil, false) is returned.
+func (c *Client) GetConfig(name string) (value any, ok bool) {
+	value, ok = nil, false
+	defer recoverRead(c.engine, "Client.GetConfig", &value)
 	return c.engine.GetConfig(name)
 }
 
 // GetConfigOr returns a dynamic config value, or def when the key is absent.
-func (c *Client) GetConfigOr(name string, def any) any {
+// Never panics into the caller: an unexpected panic is recovered, logged, and
+// def is returned.
+func (c *Client) GetConfigOr(name string, def any) (result any) {
+	result = def
+	defer recoverRead(c.engine, "Client.GetConfigOr", &result)
 	return c.engine.GetConfigOr(name, def)
 }
 
-// GetExperiment evaluates an experiment for the bound user.
-func (c *Client) GetExperiment(name string, defaultParams any) ExperimentResult {
+// GetExperiment evaluates an experiment for the bound user. Never panics into the
+// caller: an unexpected panic is recovered, logged, and the safe default
+// (InExperiment:false, Group:"control", Params:defaultParams) is returned.
+func (c *Client) GetExperiment(name string, defaultParams any) (result ExperimentResult) {
+	result = ExperimentResult{InExperiment: false, Group: "control", Params: defaultParams}
+	defer recoverRead(c.engine, "Client.GetExperiment", &result)
 	return c.engine.GetExperiment(name, c.attributes, defaultParams)
 }
 
 // GetKillswitch reports whether a kill switch is engaged. Kill switches are not
 // user-scoped; this forwards to the engine. An optional switchKey selects a
-// named per-key override switch (the dashboard "switches" feature).
-func (c *Client) GetKillswitch(name string, switchKey ...string) bool {
+// named per-key override switch (the dashboard "switches" feature). Never panics
+// into the caller: an unexpected panic is recovered, logged, and false is
+// returned.
+func (c *Client) GetKillswitch(name string, switchKey ...string) (result bool) {
+	defer recoverRead(c.engine, "Client.GetKillswitch", &result)
 	key := ""
 	if len(switchKey) > 0 {
 		key = switchKey[0]

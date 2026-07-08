@@ -22,7 +22,6 @@ package shipeasy
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"math"
 	"runtime/debug"
 	"strings"
@@ -404,7 +403,7 @@ func (c *Engine) dispatchSee(s *SeeChain) {
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[shipeasy] see() send failed: %v", r)
+			c.logf(LogLevelError, "see() send failed: %v", r)
 		}
 	}()
 	subject := s.subject
@@ -421,12 +420,12 @@ func (c *Engine) dispatchSee(s *SeeChain) {
 	}
 	body, err := json.Marshal(map[string]any{"events": []seeEvent{ev}})
 	if err != nil {
-		log.Printf("[shipeasy] see() marshal failed: %v", err)
+		c.logf(LogLevelWarn, "see() marshal failed: %v", err)
 		return
 	}
 	go func() {
 		if err := c.post("/collect", body); err != nil {
-			log.Printf("[shipeasy] see() failed: %v", err)
+			c.logf(LogLevelWarn, "see() failed: %v", err)
 		}
 	}()
 }
@@ -459,7 +458,7 @@ func resolveDefaultEngine() *Engine {
 func See(problem any) *SeeChain {
 	c := resolveDefaultEngine()
 	if c == nil {
-		log.Printf("[shipeasy] see() called before an engine was created — error dropped")
+		pkgLogf(LogLevelWarn, "see() called before an engine was created — error dropped")
 		return &SeeChain{problem: problem}
 	}
 	return c.See(problem)
@@ -469,7 +468,7 @@ func See(problem any) *SeeChain {
 func SeeViolation(name string) *SeeChain {
 	c := resolveDefaultEngine()
 	if c == nil {
-		log.Printf("[shipeasy] see() called before an engine was created — error dropped")
+		pkgLogf(LogLevelWarn, "see() called before an engine was created — error dropped")
 		return &SeeChain{problem: Violation{Name: name}}
 	}
 	return c.SeeViolation(name)
