@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.13.0 — 2026-07-08
+
+- **SDK self-monitoring for internal errors.** When one of the SDK's last-resort
+  guards (`recoverRead`, the deferred `recover` wrapping every runtime read)
+  swallows an internal failure — a bug on Shipeasy's side, not the caller's — it
+  now also reports that error to Shipeasy's own project so we can track and fix
+  SDK bugs across every app the SDK runs in. This is a dedicated, baked-in
+  destination (a public client-key ingest credential), entirely separate from
+  your `See()` reporting: internal errors never land in your project or Errors
+  tab. The report carries only the error itself plus a stable, deduped
+  consequence (subject = the guarded operation, e.g. `GetFlag`) and is
+  fire-and-forget — it can never slow down or break a read. On by default and
+  always off in test/offline mode; opt out with
+  `Options.DisableInternalErrorReporting: true`.
+
 ## 0.12.1 — 2026-07-07
 
 - **Fixed: default API host now resolves.** The default `Options.BaseURL`

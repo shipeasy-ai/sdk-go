@@ -55,6 +55,7 @@ Every field is optional except `APIKey`.
 | `BaseURL` | `string` | `https://api.shipeasy.ai` | Edge API origin for the flag/experiment blobs. |
 | `Env` | `string` | `"prod"` | Published env reported in usage + `See()` telemetry. |
 | `DisableTelemetry` | `bool` | `false` | Turn off per-evaluation usage beacons. |
+| `DisableInternalErrorReporting` | `bool` | `false` | Turn off the SDK's internal self-monitoring channel (SDK bugs "on our end", never your project). See [Configuration](configuration.md#fail-safe-reads--the-loglevel-option). Always off in test/offline mode. |
 | `TelemetryURL` | `string` | default beacon host | Override the usage beacon host. |
 | `PrivateAttributes` | `[]string` | — | Event-property keys stripped from every outbound `/collect` payload (`Track`, `LogExposure`, `See` extras). |
 | `StickyStore` | `StickyBucketStore` | `nil` | Lock in experiment assignments per bucketing unit. See [Advanced](advanced.md). |

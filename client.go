@@ -138,6 +138,13 @@ type Options struct {
 	Env string
 	// DisableTelemetry turns off per-evaluation usage beacons (ON by default).
 	DisableTelemetry bool
+	// DisableInternalErrorReporting turns off the SDK's internal self-monitoring
+	// channel (ON by default). When a runtime read swallows one of the SDK's OWN
+	// internal errors (an "on our end" bug), the SDK ships a structured see event
+	// to Shipeasy's OWN project so the SDK team can track SDK bugs centrally —
+	// separate from your See() dashboard. Set true to suppress it entirely. It is
+	// always off in test/offline mode regardless of this flag.
+	DisableInternalErrorReporting bool
 	// TelemetryURL overrides the beacon host (defaults to defaultTelemetryURL).
 	TelemetryURL string
 	// PrivateAttributes are event property keys stripped from every outbound
@@ -213,6 +220,12 @@ func NewEngine(opts Options) *Engine {
 	// Register this engine as the default backing the package-level see()
 	// funcs (last constructed wins — the server-SDK analog of shipeasy({key})).
 	SetDefaultEngine(c)
+	// Wire the internal self-monitoring channel (SDK bugs "on our end"). Enabled
+	// by default; opt out via DisableInternalErrorReporting. NewEngine builds a
+	// real (networking) engine — the test/offline engines are struct literals
+	// that bypass this, so the channel stays inert there. Mirrors setLogLevel /
+	// SetDefaultEngine carrying process-wide context from the constructor.
+	setInternalReportContext(SDKVersion, !opts.DisableInternalErrorReporting)
 	return c
 }
 
@@ -282,6 +295,12 @@ func recoverRead[T any](c *Engine, name string, def *T) {
 	if r := recover(); r != nil {
 		c.logf(LogLevelError, "%s panicked, returning safe default: %v", name, r)
 		_ = def // def already holds the documented safe default
+		// A panic recovered here is by definition "on our end" — an internal SDK
+		// failure, not the caller's — so in addition to logging locally it is
+		// self-reported to Shipeasy's own project (fire-and-forget, never panics).
+		// name doubles as the stable issue subject so occurrences of the same bug
+		// dedupe. No-op in localMode / when opted out (see setInternalReportContext).
+		reportInternalError(name, r)
 	}
 }
 

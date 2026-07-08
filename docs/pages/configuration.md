@@ -96,6 +96,26 @@ shipeasy.Configure(shipeasy.Options{
 })
 ```
 
+### SDK self-monitoring
+
+When one of those last-resort guards actually fires — a bug on Shipeasy's side,
+not yours — the SDK also reports that internal error to **Shipeasy's own
+project** so we can track and fix SDK bugs across every app the SDK runs in. It
+is a dedicated, baked-in destination (a public client-key ingest credential),
+entirely separate from your `See()` reporting: internal errors never land in your
+project or Errors tab. The report carries only the error itself plus a stable,
+deduped consequence (subject = the guarded operation, e.g. `GetFlag`), is
+rate-limited, and is fire-and-forget — it can never slow down or break a read. It
+is on by default and always off in test/offline mode. Opt out entirely with
+`DisableInternalErrorReporting: true`:
+
+```go
+shipeasy.Configure(shipeasy.Options{
+    APIKey:                        os.Getenv("SHIPEASY_SERVER_KEY"),
+    DisableInternalErrorReporting: true, // suppress the SDK self-monitoring channel
+})
+```
+
 ## Env-var convention
 
 The SDK authenticates with your project's **server** key. Read it from the
