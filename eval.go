@@ -40,6 +40,24 @@ type experiment struct {
 	// bucketing falls back to user_id ?? anonymous_id. Drives the holdout,
 	// allocation AND group hashes so all three agree. See experiment-platform doc 20.
 	BucketBy string `json:"bucketBy"`
+
+	// --- Universe-first (mutual-exclusion pool) fields, all optional. ---
+
+	// HoldoutGate is a gate name checked after the universe holdout carve-out:
+	// when it passes for the unit, the unit is held out (never assigned).
+	HoldoutGate string `json:"holdoutGate"`
+	// PoolOffsetBp / PoolSizeBp describe the slice of the universe's shared
+	// [0,10000) segment this experiment claims. Used only when HashVersion >= 2
+	// (pooled allocation, real mutual exclusion): the unit's universe segment
+	// must fall in [offset, offset+size). A nil pointer means "no slice".
+	PoolOffsetBp *int `json:"poolOffsetBp"`
+	PoolSizeBp   *int `json:"poolSizeBp"`
+	// ReservedHeadroomBp is a tail of [0,10000) in the group-split space left
+	// unassigned so a future variant can absorb it (§B5). Clamped to [0,10000].
+	ReservedHeadroomBp *int `json:"reservedHeadroomBp"`
+	// HashVersion >= 2 enables pooled allocation (with a slice). Absent/1 falls
+	// back to the legacy independent per-experiment allocation salt.
+	HashVersion *int `json:"hashVersion"`
 }
 
 type group struct {
@@ -50,6 +68,17 @@ type group struct {
 
 type universe struct {
 	HoldoutRange []int `json:"holdout_range"`
+	// ParamSchema is the universe's config schema: the single source of truth for
+	// param names, types, and defaults. assign() layers these under an assigned
+	// variant's overrides so an unset param still returns the universe default.
+	ParamSchema []universeParam `json:"param_schema"`
+}
+
+// universeParam is one entry in a universe's param_schema.
+type universeParam struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Default any    `json:"default"`
 }
 
 type flagsBlob struct {
@@ -245,54 +274,155 @@ func evalGate(g gate, u User) bool {
 	return Murmur3(g.Salt+":"+uid)%10000 < uint32(g.RolloutPct)
 }
 
-func evalExperiment(name string, exp *experiment, flags *flagsBlob, exps *expsBlob, u User, sticky StickyBucketStore) ExperimentResult {
-	notIn := ExperimentResult{InExperiment: false, Group: "control"}
-	if exp == nil || exp.Status != "running" {
-		return notIn
+// ---- Universe assignment (mutual-exclusion pool eval) ----
+
+// paramDefaultsFromSchema flattens a universe param schema to a plain
+// name -> default map — the defaults assign() layers under a variant's override
+// map (§B2). Returns nil for a nil/empty schema so the merge short-circuits.
+// Mirrors @shipeasy/core.
+func paramDefaultsFromSchema(schema []universeParam) map[string]any {
+	if len(schema) == 0 {
+		return nil
 	}
-	if exp.TargetingGate != "" {
-		if flags == nil {
-			return notIn
-		}
-		g, ok := flags.Gates[exp.TargetingGate]
-		if !ok || !evalGate(g, u) {
-			return notIn
+	out := make(map[string]any, len(schema))
+	for _, p := range schema {
+		out[p.Name] = p.Default
+	}
+	return out
+}
+
+// mergeParams returns universeDefaults ⊕ variantOverride: a variant inherits
+// every universe default it doesn't explicitly override (§B2). groupParams, when
+// a map, wins per key. A non-map groupParams (or nil) with no defaults is
+// returned as-is (legacy shape preserved).
+func mergeParams(paramDefaults map[string]any, groupParams any) any {
+	if paramDefaults == nil {
+		return groupParams
+	}
+	out := make(map[string]any, len(paramDefaults))
+	for k, v := range paramDefaults {
+		out[k] = v
+	}
+	if gp, ok := groupParams.(map[string]any); ok {
+		for k, v := range gp {
+			out[k] = v
 		}
 	}
+	return out
+}
+
+// expState is a unit's standing in one experiment: an assigned group (state
+// "group", with merged params), "holdout" (universe carve-out or holdout gate —
+// never assigned), or "out".
+type expState int
+
+const (
+	stateOut expState = iota
+	stateHoldout
+	stateGroup
+)
+
+// expStanding is the result of classifyExperiment: for stateGroup, Group is the
+// assigned variant and Params is ALREADY merged (universeDefaults ⊕ variant).
+type expStanding struct {
+	State  expState
+	Group  string
+	Params any
+}
+
+// classifyExperiment is the single local mirror of @shipeasy/core's
+// classifyExperiment (doc 20 §B): targeting → universe holdout → holdout gate →
+// sticky → allocation (pooled or legacy) → weighted group split. evalGate is a
+// gate-name → boolean lookup over the flags blob so the two gate checks reuse the
+// SDK's real gate evaluation. holdoutRange is the universe carve-out (nil when
+// absent); paramDefaults are the universe param defaults merged under every
+// returned group's params.
+func classifyExperiment(
+	name string,
+	exp *experiment,
+	u User,
+	holdoutRange []int,
+	paramDefaults map[string]any,
+	evalGateFn func(string) bool,
+	sticky StickyBucketStore,
+) expStanding {
+	asGroup := func(g group) expStanding {
+		return expStanding{State: stateGroup, Group: g.Name, Params: mergeParams(paramDefaults, g.Params)}
+	}
+
+	if exp.TargetingGate != "" && !evalGateFn(exp.TargetingGate) {
+		return expStanding{State: stateOut}
+	}
+
 	uid := pickIdentifier(u, exp.BucketBy)
 	if uid == "" {
-		return notIn
+		return expStanding{State: stateOut}
 	}
-	if exp.Universe != "" && exps != nil {
-		if uni, ok := exps.Universes[exp.Universe]; ok && len(uni.HoldoutRange) == 2 {
-			seg := Murmur3(exp.Universe+":"+uid) % 10000
-			if seg >= uint32(uni.HoldoutRange[0]) && seg <= uint32(uni.HoldoutRange[1]) {
-				return notIn
-			}
+
+	// One segment in the universe's shared [0,10000) hash space. The holdout
+	// carve-out AND every experiment's pool slice are disjoint ranges of THIS
+	// segment — that's what makes "held out / taken / free" a real partition.
+	universeSeg := Murmur3(exp.Universe+":"+uid) % 10000
+
+	if len(holdoutRange) == 2 {
+		if universeSeg >= uint32(holdoutRange[0]) && universeSeg <= uint32(holdoutRange[1]) {
+			return expStanding{State: stateHoldout}
 		}
 	}
 
-	// Sticky short-circuit (doc 20 §2): an enrolled unit whose stored salt
-	// prefix still matches skips the allocation gate (so a shrinking allocation
-	// keeps it in) and returns the stored group without re-running the pick. A
-	// salt-prefix mismatch or a now-missing group falls through to re-bucket and
-	// overwrite below.
+	if exp.HoldoutGate != "" && evalGateFn(exp.HoldoutGate) {
+		return expStanding{State: stateHoldout}
+	}
+
+	// Sticky short-circuit (doc 20 §2): an enrolled unit whose stored salt prefix
+	// still matches skips the allocation gate (so a shrinking allocation keeps it
+	// in) and returns the stored group. A salt-prefix mismatch or a now-missing
+	// group falls through to re-bucket + overwrite below.
 	salt8 := saltPrefix(exp.Salt)
 	if sticky != nil && name != "" {
 		if entry, ok := sticky.Get(uid)[name]; ok && entry.S == salt8 {
 			for _, g := range exp.Groups {
 				if g.Name == entry.G {
-					return ExperimentResult{InExperiment: true, Group: g.Name, Params: g.Params}
+					return asGroup(g)
 				}
 			}
-			// Stored group gone — fall through to re-bucket + overwrite.
 		}
 	}
 
-	if Murmur3(exp.Salt+":alloc:"+uid)%10000 >= uint32(exp.AllocationPct) {
-		return notIn
+	// Allocation. Pooled (hashVersion >= 2 with a slice) gives real mutual
+	// exclusion: the unit's universe segment must fall in the claimed range.
+	// Legacy falls back to an independent per-experiment salt so siblings overlap.
+	pooled := exp.HashVersion != nil && *exp.HashVersion >= 2 &&
+		exp.PoolOffsetBp != nil && exp.PoolSizeBp != nil && *exp.PoolSizeBp > 0
+	if pooled {
+		lo := uint32(*exp.PoolOffsetBp)
+		hi := lo + uint32(*exp.PoolSizeBp)
+		if universeSeg < lo || universeSeg >= hi {
+			return expStanding{State: stateOut}
+		}
+	} else {
+		if Murmur3(exp.Salt+":alloc:"+uid)%10000 >= uint32(exp.AllocationPct) {
+			return expStanding{State: stateOut}
+		}
 	}
+
+	// Group split over [0, usable) where usable = 10000 − reserved; a unit in the
+	// reserved tail is left unassigned so an appended variant can absorb it (§B5).
+	reserved := 0
+	if exp.ReservedHeadroomBp != nil {
+		reserved = *exp.ReservedHeadroomBp
+	}
+	if reserved < 0 {
+		reserved = 0
+	}
+	if reserved > 10000 {
+		reserved = 10000
+	}
+	usable := uint32(10000 - reserved)
 	groupHash := Murmur3(exp.Salt+":group:"+uid) % 10000
+	if groupHash >= usable {
+		return expStanding{State: stateOut}
+	}
 	cumulative := uint32(0)
 	for i, g := range exp.Groups {
 		cumulative += uint32(g.Weight)
@@ -300,10 +430,57 @@ func evalExperiment(name string, exp *experiment, flags *flagsBlob, exps *expsBl
 			if sticky != nil && name != "" {
 				sticky.Set(uid, name, StickyEntry{G: g.Name, S: salt8})
 			}
-			return ExperimentResult{InExperiment: true, Group: g.Name, Params: g.Params}
+			return asGroup(g)
 		}
 	}
-	return notIn
+	return expStanding{State: stateOut}
+}
+
+// classifyOne runs the full override → classify pipeline for one experiment,
+// keyed by name. It resolves the universe's holdout range + param defaults, wires
+// a gate-lookup closure over the flags blob, and returns the unit's standing.
+// override, when present, short-circuits to stateGroup with merged params.
+func classifyOne(name string, exp *experiment, flags *flagsBlob, exps *expsBlob, u User, sticky StickyBucketStore, override *ExperimentResult) expStanding {
+	var paramDefaults map[string]any
+	var holdoutRange []int
+	if exps != nil && exp != nil {
+		if uni, ok := exps.Universes[exp.Universe]; ok {
+			paramDefaults = paramDefaultsFromSchema(uni.ParamSchema)
+			if len(uni.HoldoutRange) == 2 {
+				holdoutRange = uni.HoldoutRange
+			}
+		}
+	}
+	if override != nil {
+		return expStanding{State: stateGroup, Group: override.Group, Params: mergeParams(paramDefaults, override.Params)}
+	}
+	if exp == nil || exp.Status != "running" {
+		return expStanding{State: stateOut}
+	}
+	evalGateFn := func(gname string) bool {
+		if flags == nil {
+			return false
+		}
+		g, ok := flags.Gates[gname]
+		if !ok {
+			return false
+		}
+		return evalGate(g, u)
+	}
+	return classifyExperiment(name, exp, u, holdoutRange, paramDefaults, evalGateFn, sticky)
+}
+
+// evalExperiment is the experiment-keyed classify entry point retained for the
+// cross-language eval-vectors parity test (testdata/eval-vectors.json) and the
+// internal override seam. The public read path is Universe(name).Assign(user);
+// this returns the legacy ExperimentResult shape (InExperiment/Group/Params) for
+// one experiment. A returned "holdout" or "out" standing maps to not-enrolled.
+func evalExperiment(name string, exp *experiment, flags *flagsBlob, exps *expsBlob, u User, sticky StickyBucketStore) ExperimentResult {
+	st := classifyOne(name, exp, flags, exps, u, sticky, nil)
+	if st.State == stateGroup {
+		return ExperimentResult{InExperiment: true, Group: st.Group, Params: st.Params}
+	}
+	return ExperimentResult{InExperiment: false, Group: "control"}
 }
 
 // saltPrefix returns the first 8 bytes of the salt (the sticky reshuffle key).

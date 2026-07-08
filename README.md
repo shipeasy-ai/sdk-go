@@ -99,20 +99,14 @@ In tests you don't want a live edge or a real API key. Configure Shipeasy in tes
 ```go
 func TestCheckout(t *testing.T) {
     shipeasy.ConfigureForTesting(shipeasy.TestOptions{
-        Flags:       map[string]bool{"new_checkout": true},
-        Configs:     map[string]any{"billing_copy": map[string]any{"cta": "Buy now"}},
-        Experiments: map[string]shipeasy.ExperimentOverride{
-            "checkout_button": {Group: "treatment", Params: map[string]any{"color": "green"}},
-        },
+        Flags:   map[string]bool{"new_checkout": true},
+        Configs: map[string]any{"billing_copy": map[string]any{"cta": "Buy now"}},
     })
 
     c := shipeasy.NewClient(shipeasy.User{"user_id": "u_123"}) // bind once
 
     if !c.GetFlag("new_checkout") {
         t.Fatal("expected new_checkout on")
-    }
-    if r := c.GetExperiment("checkout_button", nil); r.Group != "treatment" {
-        t.Fatalf("got group %q", r.Group)
     }
 }
 ```

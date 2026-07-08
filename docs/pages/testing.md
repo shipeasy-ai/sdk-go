@@ -12,11 +12,8 @@ between cases.
 ```go
 func TestCheckout(t *testing.T) {
     shipeasy.ConfigureForTesting(shipeasy.TestOptions{
-        Flags:       map[string]bool{"new_checkout": true},
-        Configs:     map[string]any{"billing_copy": map[string]any{"cta": "Buy now"}},
-        Experiments: map[string]shipeasy.ExperimentOverride{
-            "checkout_button": {Group: "treatment", Params: map[string]any{"color": "green"}},
-        },
+        Flags:   map[string]bool{"new_checkout": true},
+        Configs: map[string]any{"billing_copy": map[string]any{"cta": "Buy now"}},
     })
 
     c := shipeasy.NewClient(shipeasy.User{"user_id": "u_123"}) // bind once
@@ -24,10 +21,19 @@ func TestCheckout(t *testing.T) {
     if !c.GetFlag("new_checkout") {
         t.Fatal("expected new_checkout on")
     }
-    if r := c.GetExperiment("checkout_button", nil); r.Group != "treatment" {
-        t.Fatalf("got group %q", r.Group)
-    }
 }
+```
+
+To assert an **experiment** assignment, seed a real universe + experiment with
+`ConfigureForOffline` (below) — an experiment override *refines* an experiment
+that lives in a universe; it doesn't invent one in an empty universe. Read it by
+universe with `Universe(name).Assign()`:
+
+```go
+a := shipeasy.NewClient(shipeasy.User{"user_id": "u_1"}).Universe("hero_cta").Assign()
+_ = a.Enrolled              // true when the seeded experiment enrolled the unit
+_ = a.Group                 // the assigned variant, or "" when not enrolled
+_ = a.Get("primary_label", "Sign up") // variant ?? universe default ?? fallback
 ```
 
 `TestOptions` fields are all optional:
@@ -36,10 +42,18 @@ func TestCheckout(t *testing.T) {
 | --- | --- | --- |
 | `Flags` | `map[string]bool` | forced `GetFlag` results |
 | `Configs` | `map[string]any` | forced `GetConfig` results |
-| `Experiments` | `map[string]ExperimentOverride` | forced enrolments (`Group` + `Params`) |
+| `Experiments` | `map[string]ExperimentOverride` | forced enrolment for an experiment that exists in a universe (see below) |
 | `Attributes` | `func(any) User` | same transform as `Configure` (default identity) |
 
-`Track` and `LogExposure` are no-ops in test mode — they never hit the network.
+An `Experiments` seed (and `OverrideExperiment`) **refines** an experiment that
+already lives in a universe — it forces that experiment's variant. It does not
+invent an experiment in an empty universe, and it is read by universe, not by
+experiment name. Seed the universe + experiment via `ConfigureForOffline`, then
+force the variant; on an empty test-mode blob (no snapshot) `Universe().Assign()`
+returns not-enrolled regardless of the seed.
+
+`Track` is a no-op and `Assign` logs no exposure in test mode — they never hit
+the network.
 
 ## On-the-spot overrides
 

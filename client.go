@@ -68,6 +68,13 @@ type Engine struct {
 	// (a salt change still reshuffles). Absent ⇒ deterministic, unchanged.
 	stickyStore StickyBucketStore
 
+	// exposureSeen dedups auto-logged exposures across assign() calls in one
+	// process (uid:experiment:group). Bounded — cleared at ~5000 entries — so
+	// repeated assign() calls in a long-running server don't spam /collect.
+	// Guarded by exposureMu.
+	exposureSeen map[string]struct{}
+	exposureMu   sync.Mutex
+
 	// logLevel is the resolved verbosity threshold (one of the logLevel* keys).
 	// A message logged at level L via logf is emitted iff logRank[level] <=
 	// logRank[logLevel]. Set in NewEngine (defaults to "warn" when empty).
@@ -447,43 +454,6 @@ func (c *Engine) getKillswitch(name string, switchKey string) bool {
 	return enabled(entry.Enabled)
 }
 
-// GetExperiment evaluates an experiment for user. It never panics into the
-// caller: an unexpected panic is recovered, logged, and the documented safe
-// default (InExperiment:false, Group:"control", Params:defaultParams) is
-// returned.
-func (c *Engine) GetExperiment(name string, user User, defaultParams any) (result ExperimentResult) {
-	result = ExperimentResult{InExperiment: false, Group: "control", Params: defaultParams}
-	defer recoverRead(c, "GetExperiment", &result)
-	return c.getExperiment(name, user, defaultParams)
-}
-
-func (c *Engine) getExperiment(name string, user User, defaultParams any) ExperimentResult {
-	c.telemetry.emit("experiment", name)
-	c.mu.RLock()
-	if r, ok := c.expOverrides[name]; ok {
-		c.mu.RUnlock()
-		if r.Params == nil {
-			r.Params = defaultParams
-		}
-		return r
-	}
-	flags := c.flags
-	exps := c.exps
-	sticky := c.stickyStore
-	c.mu.RUnlock()
-	var exp *experiment
-	if exps != nil {
-		if e, ok := exps.Experiments[name]; ok {
-			exp = &e
-		}
-	}
-	r := evalExperiment(name, exp, flags, exps, user, sticky)
-	if r.Params == nil {
-		r.Params = defaultParams
-	}
-	return r
-}
-
 // stripPrivate drops every key named in privateAttributes from an outbound
 // properties bag. Returns the input unchanged when there's nothing to strip.
 func (c *Engine) stripPrivate(props map[string]any) map[string]any {
@@ -530,33 +500,39 @@ func (c *Engine) Track(userID, eventName string, properties map[string]any) {
 	}()
 }
 
-// LogExposure emits an exposure event for an experiment at the server-side
-// decision point (parity with the browser's auto-exposure). The server is
-// stateless and never auto-logs, so call this when you actually present the
-// treatment. The experiment is re-evaluated for the user; if enrolled, a single
-// {type:"exposure", experiment, group, user_id, ts} event is POSTed to
-// /collect. No-op in localMode or when the user isn't enrolled.
-//
-// userID may be a bare user id; for bucketBy experiments or anonymous traffic
-// use LogExposureUser with a full User.
-func (c *Engine) LogExposure(userID, experimentName string) {
-	c.LogExposureUser(User{"user_id": userID}, experimentName)
-}
-
-// LogExposureUser is LogExposure with a full User (needed for bucketBy
-// experiments or anonymous_id-only traffic).
-func (c *Engine) LogExposureUser(user User, experimentName string) {
+// postExposure POSTs a single exposure for an enrolled (user, experiment, group).
+// Deduped per process (bounded set) so repeated assign() calls in one server
+// don't spam /collect. Fire-and-forget; no-op in localMode. This is how
+// assignUniverse auto-logs — the browser's auto-exposure parity for SSR.
+func (c *Engine) postExposure(user User, experimentName, group string) {
 	if c.localMode {
 		return
 	}
-	r := c.GetExperiment(experimentName, user, nil)
-	if !r.InExperiment {
+	uid := ""
+	if v, ok := user["user_id"]; ok && v != nil {
+		uid = fmt.Sprintf("%v", v)
+	} else if v, ok := user["anonymous_id"]; ok && v != nil {
+		uid = fmt.Sprintf("%v", v)
+	}
+	dedupKey := uid + ":" + experimentName + ":" + group
+	c.exposureMu.Lock()
+	if c.exposureSeen == nil {
+		c.exposureSeen = map[string]struct{}{}
+	}
+	if _, seen := c.exposureSeen[dedupKey]; seen {
+		c.exposureMu.Unlock()
 		return
 	}
+	if len(c.exposureSeen) > 5000 {
+		c.exposureSeen = map[string]struct{}{}
+	}
+	c.exposureSeen[dedupKey] = struct{}{}
+	c.exposureMu.Unlock()
+
 	event := map[string]any{
 		"type":       "exposure",
 		"experiment": experimentName,
-		"group":      r.Group,
+		"group":      group,
 		"ts":         time.Now().UnixMilli(),
 	}
 	if v, ok := user["user_id"]; ok && v != nil {
@@ -571,7 +547,7 @@ func (c *Engine) LogExposureUser(user User, experimentName string) {
 	}
 	go func() {
 		if err := c.post("/collect", body); err != nil {
-			c.logf(LogLevelWarn, "logExposure failed: %v", err)
+			c.logf(LogLevelWarn, "exposure send failed: %v", err)
 		}
 	}()
 }

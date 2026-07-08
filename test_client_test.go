@@ -34,8 +34,8 @@ func TestNewTestClientNoNetwork(t *testing.T) {
 	if v, ok := c.GetConfig("missing"); ok || v != nil {
 		t.Errorf("unseeded config should be (nil,false); got (%v,%v)", v, ok)
 	}
-	if r := c.GetExperiment("missing", User{}, nil); r.InExperiment {
-		t.Errorf("unseeded experiment should not be in-experiment")
+	if a := c.Universe("missing").Assign(User{}); a.Enrolled {
+		t.Errorf("unseeded universe should not enrol")
 	}
 }
 
@@ -65,39 +65,44 @@ func TestOverrideConfig(t *testing.T) {
 	}
 }
 
-func TestOverrideExperiment(t *testing.T) {
-	c := NewTestClient()
-	params := map[string]any{"color": "green"}
-	c.OverrideExperiment("checkout_button", "treatment", params)
-	r := c.GetExperiment("checkout_button", User{}, map[string]any{"color": "blue"})
-	if !r.InExperiment {
-		t.Errorf("override experiment should be InExperiment")
+// seedRunningExp loads one running experiment (in universe "u") into a test
+// engine so an OverrideExperiment on it surfaces through Universe().Assign() —
+// assign only considers running candidates in the loaded blob (the override still
+// wins over the fetched groups).
+func seedRunningExp(c *Engine, expName string) {
+	c.mu.Lock()
+	c.exps = &expsBlob{
+		Universes: map[string]universe{"u": {}},
+		Experiments: map[string]experiment{
+			expName: {Status: "running", Universe: "u", Salt: "s", AllocationPct: 10000,
+				Groups: []group{{Name: "control", Weight: 10000}}},
+		},
 	}
-	if r.Group != "treatment" {
-		t.Errorf("group = %q, want treatment", r.Group)
-	}
-	m, _ := r.Params.(map[string]any)
-	if m["color"] != "green" {
-		t.Errorf("params = %v, want color=green (override wins over default)", r.Params)
-	}
+	c.mu.Unlock()
 }
 
-// A nil-params override still falls back to the call's defaultParams.
-func TestOverrideExperimentNilParamsUsesDefault(t *testing.T) {
+func TestOverrideExperiment(t *testing.T) {
 	c := NewTestClient()
-	c.OverrideExperiment("exp", "control", nil)
-	r := c.GetExperiment("exp", User{}, map[string]any{"k": "default"})
-	if !r.InExperiment || r.Group != "control" {
-		t.Fatalf("override not applied: %+v", r)
+	seedRunningExp(c, "checkout_button")
+	c.OverrideExperiment("checkout_button", "treatment", map[string]any{"color": "green"})
+	a := c.Universe("u").Assign(User{})
+	if !a.Enrolled {
+		t.Errorf("override experiment should be enrolled")
 	}
-	m, _ := r.Params.(map[string]any)
-	if m["k"] != "default" {
-		t.Errorf("nil-params override should fall back to defaultParams; got %v", r.Params)
+	if a.Name != "checkout_button" {
+		t.Errorf("name = %q, want checkout_button", a.Name)
+	}
+	if a.Group != "treatment" {
+		t.Errorf("group = %q, want treatment", a.Group)
+	}
+	if a.Get("color", "blue") != "green" {
+		t.Errorf("color = %v, want green (override wins)", a.Get("color", "blue"))
 	}
 }
 
 func TestClearOverrides(t *testing.T) {
 	c := NewTestClient()
+	seedRunningExp(c, "e")
 	c.OverrideFlag("f", true)
 	c.OverrideConfig("c", 1)
 	c.OverrideExperiment("e", "g", nil)
@@ -109,8 +114,10 @@ func TestClearOverrides(t *testing.T) {
 	if _, ok := c.GetConfig("c"); ok {
 		t.Errorf("config override should be cleared")
 	}
-	if r := c.GetExperiment("e", User{}, nil); r.InExperiment {
-		t.Errorf("experiment override should be cleared")
+	// Override cleared → assign falls back to the seeded experiment's real groups
+	// (still enrolled, but in "control", not the forced "g").
+	if a := c.Universe("u").Assign(User{"user_id": "u1"}); a.Group == "g" {
+		t.Errorf("experiment override should be cleared, still saw forced group %q", a.Group)
 	}
 }
 

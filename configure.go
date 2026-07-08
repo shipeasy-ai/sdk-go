@@ -197,13 +197,30 @@ func (c *Client) GetConfigOr(name string, def any) (result any) {
 	return c.engine.GetConfigOr(name, def)
 }
 
-// GetExperiment evaluates an experiment for the bound user. Never panics into the
-// caller: an unexpected panic is recovered, logged, and the safe default
-// (InExperiment:false, Group:"control", Params:defaultParams) is returned.
-func (c *Client) GetExperiment(name string, defaultParams any) (result ExperimentResult) {
-	result = ExperimentResult{InExperiment: false, Group: "control", Params: defaultParams}
-	defer recoverRead(c.engine, "Client.GetExperiment", &result)
-	return c.engine.GetExperiment(name, c.attributes, defaultParams)
+// Universe returns a reusable handle bound to universe name for the bound user:
+// c.Universe("checkout").Assign(). A universe is a mutual-exclusion pool, so the
+// unit lands in at most one experiment; Assign() picks it (auto-logging a single
+// deduped exposure when enrolled) and returns an Assignment whose Get(field,
+// fallback) resolves variant override ?? universe default ?? fallback. This is
+// the sole experiment read path (there is no GetExperiment — you ask a universe,
+// not an experiment).
+func (c *Client) Universe(name string) *BoundUniverseHandle {
+	return &BoundUniverseHandle{client: c, name: name}
+}
+
+// BoundUniverseHandle is a user-bound universe handle: Assign() takes no user
+// argument and forwards the Client's bound attribute map.
+type BoundUniverseHandle struct {
+	client *Client
+	name   string
+}
+
+// Assign assigns the bound user within the bound universe. See Client.Universe.
+// Never panics into the caller: an unexpected panic is recovered, logged, and a
+// not-enrolled Assignment is returned.
+func (h *BoundUniverseHandle) Assign() (result Assignment) {
+	defer recoverRead(h.client.engine, "Client.Universe.Assign", &result)
+	return h.client.engine.assignUniverse(h.name, h.client.attributes)
 }
 
 // GetKillswitch reports whether a kill switch is engaged. Kill switches are not
@@ -246,12 +263,3 @@ func (c *Client) Track(event string, props map[string]any) {
 	c.engine.Track(c.unitID(), event, props)
 }
 
-// LogExposure emits an exposure event for an experiment at the bound user's
-// server-side decision point (parity with the browser's auto-exposure). The
-// experiment is re-evaluated against the bound attribute map; if enrolled, a
-// single exposure event is POSTed. No user argument is needed. Forwards to
-// Engine.LogExposureUser with the bound attributes (so bucketBy and
-// anonymous_id traffic resolve correctly).
-func (c *Client) LogExposure(experiment string) {
-	c.engine.LogExposureUser(c.attributes, experiment)
-}

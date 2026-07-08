@@ -8,8 +8,8 @@ import (
 )
 
 // panicStore is an adversarial StickyBucketStore whose Get panics. It is wired
-// into a running experiment so GetExperiment's read path reaches it, exercising
-// the defensive recover in the runtime read methods.
+// into a running experiment so Universe().Assign()'s read path reaches it,
+// exercising the defensive recover in the runtime read methods.
 type panicStore struct{}
 
 func (panicStore) Get(unit string) map[string]StickyEntry {
@@ -26,9 +26,11 @@ func runningExpEngine(t *testing.T, store StickyBucketStore, logLevel string) (*
 	c.initialized = true
 	c.stickyStore = store
 	c.exps = &expsBlob{
+		Universes: map[string]universe{"u": {}},
 		Experiments: map[string]experiment{
 			"exp1": {
 				Status:        "running",
+				Universe:      "u",
 				Salt:          "s",
 				AllocationPct: 10000,
 				Groups:        []group{{Name: "control", Weight: 100}},
@@ -39,26 +41,26 @@ func runningExpEngine(t *testing.T, store StickyBucketStore, logLevel string) (*
 }
 
 // TestRuntimeReadNeverPanics asserts that an unexpected panic inside a runtime
-// read (here, a panicking sticky store reached from GetExperiment) is caught and
-// the documented safe default is returned instead of unwinding into the caller.
+// read (here, a panicking sticky store reached from Universe().Assign()) is
+// caught and the documented safe default is returned instead of unwinding.
 func TestRuntimeReadNeverPanics(t *testing.T) {
 	c, user := runningExpEngine(t, panicStore{}, LogLevelSilent)
 
 	defer func() {
 		if r := recover(); r != nil {
-			t.Fatalf("GetExperiment panicked into caller: %v", r)
+			t.Fatalf("Assign panicked into caller: %v", r)
 		}
 	}()
 
-	got := c.GetExperiment("exp1", user, map[string]any{"fallback": true})
-	if got.InExperiment {
-		t.Fatalf("expected safe default InExperiment=false, got %+v", got)
+	got := c.Universe("u").Assign(user)
+	if got.Enrolled {
+		t.Fatalf("expected safe default Enrolled=false, got %+v", got)
 	}
-	if got.Group != "control" {
-		t.Fatalf("expected safe default Group=control, got %q", got.Group)
+	if got.Group != "" {
+		t.Fatalf("expected safe default Group=\"\", got %q", got.Group)
 	}
-	if m, ok := got.Params.(map[string]any); !ok || m["fallback"] != true {
-		t.Fatalf("expected defaultParams echoed back, got %+v", got.Params)
+	if got.Get("fallback", true) != true {
+		t.Fatalf("expected fallback echoed back, got %+v", got.Get("fallback", true))
 	}
 
 	// The bound Client form must be equally safe (built directly against an
@@ -68,11 +70,11 @@ func TestRuntimeReadNeverPanics(t *testing.T) {
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				t.Fatalf("Client.GetExperiment panicked into caller: %v", r)
+				t.Fatalf("Client.Universe.Assign panicked into caller: %v", r)
 			}
 		}()
-		if r := cl.GetExperiment("exp1", nil); r.InExperiment || r.Group != "control" {
-			t.Fatalf("Client.GetExperiment safe default wrong: %+v", r)
+		if a := cl.Universe("u").Assign(); a.Enrolled || a.Group != "" {
+			t.Fatalf("Client.Universe.Assign safe default wrong: %+v", a)
 		}
 	}()
 }
@@ -94,7 +96,7 @@ func TestLogLevelGating(t *testing.T) {
 	// silent: the recover's error-level log is suppressed.
 	buf.Reset()
 	cSilent, user := runningExpEngine(t, panicStore{}, LogLevelSilent)
-	_ = cSilent.GetExperiment("exp1", user, nil)
+	_ = cSilent.Universe("u").Assign(user)
 	if got := buf.String(); got != "" {
 		t.Fatalf("LogLevel silent should suppress all output, got: %q", got)
 	}
@@ -105,8 +107,8 @@ func TestLogLevelGating(t *testing.T) {
 	if cDefault.logLevel != LogLevelWarn {
 		t.Fatalf("empty LogLevel should resolve to warn, got %q", cDefault.logLevel)
 	}
-	_ = cDefault.GetExperiment("exp1", user2, nil)
-	if got := buf.String(); !strings.Contains(got, "[shipeasy]") || !strings.Contains(got, "GetExperiment panicked") {
+	_ = cDefault.Universe("u").Assign(user2)
+	if got := buf.String(); !strings.Contains(got, "[shipeasy]") || !strings.Contains(got, "Assign panicked") {
 		t.Fatalf("default (warn) LogLevel should emit the error-level recover log, got: %q", got)
 	}
 }

@@ -114,7 +114,7 @@ func TestReportInternalError_StableConsequenceAndSDKExtra(t *testing.T) {
 	rt := stubInternalReport(t)
 	setInternalReportContext("9.9.9", true)
 
-	reportInternalError("Client.GetExperiment", &customErr{"boom"})
+	reportInternalError("Client.Universe.Assign", &customErr{"boom"})
 
 	calls := rt.settled(t, 1)
 	if len(calls) != 1 || len(calls[0].events) != 1 {
@@ -127,7 +127,7 @@ func TestReportInternalError_StableConsequenceAndSDKExtra(t *testing.T) {
 	if ev.Kind != "caught" {
 		t.Fatalf("kind = %q, want caught", ev.Kind)
 	}
-	if ev.Subject != "Client.GetExperiment" {
+	if ev.Subject != "Client.Universe.Assign" {
 		t.Fatalf("subject = %q", ev.Subject)
 	}
 	if ev.Outcome != "returned a safe default" {
@@ -232,18 +232,18 @@ func TestRecoverReadReportsInternalError(t *testing.T) {
 
 	c, user := runningExpEngine(t, panicStore{}, LogLevelSilent)
 
-	got := c.GetExperiment("exp1", user, map[string]any{"fallback": true})
+	got := c.Universe("u").Assign(user)
 	// safe default still returned
-	if got.InExperiment {
-		t.Fatalf("expected safe default InExperiment=false, got %+v", got)
+	if got.Enrolled {
+		t.Fatalf("expected safe default Enrolled=false, got %+v", got)
 	}
 
 	calls := rt.settled(t, 1)
 	if len(calls) != 1 {
 		t.Fatalf("want 1 internal report from recoverRead, got %d", len(calls))
 	}
-	if ev := calls[0].events[0]; ev.Subject != "GetExperiment" {
-		t.Fatalf("subject = %q, want GetExperiment", ev.Subject)
+	if ev := calls[0].events[0]; ev.Subject != "Universe.Assign" {
+		t.Fatalf("subject = %q, want Universe.Assign", ev.Subject)
 	}
 }
 

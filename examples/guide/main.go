@@ -37,7 +37,7 @@ type Entity struct {
 func entities(c *shipeasy.Client) []Entity {
 	featureOn := c.GetFlag("new_checkout")
 	cfg, cfgOK := c.GetConfig("billing_copy")
-	exp := c.GetExperiment("checkout_button", map[string]any{"color": "#888", "label": "Buy"})
+	exp := c.Universe("checkout").Assign()
 	paused := c.GetKillswitch("payments_paused")
 
 	return []Entity{
@@ -67,11 +67,11 @@ func entities(c *shipeasy.Client) []Entity {
 		{
 			Label:  "A/B EXPERIMENT",
 			Accent: "#c084fc",
-			Key:    "checkout_button",
-			Value:  fmt.Sprintf("%s · %s", exp.Group, formatAny(exp.Params)),
-			Desc:   "Splits users into variants and measures a metric.",
-			Call:   `r := c.GetExperiment("checkout_button", map[string]any{"color":"#888","label":"Buy"})`,
-			Meta:   "r.InExperiment == true · r.Group == \"treatment\" · read params from r.Params",
+			Key:    "checkout",
+			Value:  fmt.Sprintf("%s · %v", exp.Group, exp.Get("color", "#888")),
+			Desc:   "A universe splits users into at most one experiment and measures a metric.",
+			Call:   `a := c.Universe("checkout").Assign()`,
+			Meta:   "a.Enrolled == true · a.Group == \"treatment\" · read params with a.Get(field, fallback)",
 		},
 
 		// 4. KILL SWITCH

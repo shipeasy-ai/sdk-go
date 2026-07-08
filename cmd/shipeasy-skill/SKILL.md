@@ -1,6 +1,6 @@
 ---
 name: shipeasy-go
-description: Use Shipeasy (feature flags, configs, kill switches, A/B experiments, i18n) from Go. Covers Configure() + NewClient(user), GetFlag/GetConfig/GetExperiment/GetKillswitch, Track, testing, OpenFeature.
+description: Use Shipeasy (feature flags, configs, kill switches, A/B experiments, i18n) from Go. Covers Configure() + NewClient(user), GetFlag/GetConfig/Universe().Assign()/GetKillswitch, Track, testing, OpenFeature.
 ---
 
 # Shipeasy Go SDK
@@ -69,12 +69,15 @@ paused := c.GetKillswitch("payments_paused")         // true = killed
 
 ## Experiments + track (Client-only, end to end)
 
+Experiments are read by **universe** — a mutual-exclusion pool; a unit lands in
+<=1 experiment. `Assign()` auto-logs a single deduped exposure when enrolled.
+
 ```go
 c := shipeasy.NewClient(acct)                        // construct once per callsite
-r := c.GetExperiment("checkout_button", map[string]any{"color": "blue"})
-// r.InExperiment bool, r.Group string, r.Params any (defaultParams when not enrolled)
+a := c.Universe("checkout").Assign()                 // Assignment (no getExperiment)
+// a.Enrolled bool, a.Name/a.Group string ("" when not enrolled)
+color := a.Get("color", "blue")                      // variant ?? universe default ?? fallback
 
-c.LogExposure("checkout_button")                     // record where you present the treatment
 c.Track("purchase", map[string]any{"amount": 49})    // conversion for the bound user
 ```
 

@@ -40,26 +40,27 @@ head := shipeasy.BootstrapScriptTag(user, shipeasy.BootstrapTagOptions{AnonID: a
 `BootstrapTagOptions` accepts `AnonID`, `I18nProfile`, and `BaseURL` (defaults to
 `https://cdn.shipeasy.ai`).
 
-## Manual exposure
+## Exposure logging
 
-The server is stateless and never auto-logs exposures. When you actually present
-a treatment, call `LogExposure` on the bound `Client`. It re-evaluates the
-experiment against the bound attributes (so `bucketBy` and `anonymous_id`-only
-traffic resolve correctly); if the user is enrolled, one
-`{type:"exposure", experiment, group, user_id/anonymous_id, ts}` event is POSTed
-to `/collect`:
+`Universe(name).Assign()` auto-logs a single exposure when the unit is enrolled —
+you don't call anything separately. The exposure is deduped per process (unit +
+experiment + group) so repeated `Assign()` calls in a long-running server don't
+spam `/collect`; it re-evaluates against the bound attributes (so `bucketBy` and
+`anonymous_id`-only traffic resolve correctly) and POSTs one
+`{type:"exposure", experiment, group, user_id/anonymous_id, ts}` event:
 
 ```go
 c := shipeasy.NewClient(shipeasy.User{"anonymous_id": anonID}) // bind once
-c.LogExposure("checkout_button")
+a := c.Universe("hero_cta").Assign()                            // logs the exposure if enrolled
+_ = a
 ```
 
-No-op in local mode (test/offline) or when the user isn't enrolled.
+No-op in local mode (test/offline) or when the unit isn't enrolled.
 
 ## Private attributes
 
 `Options.PrivateAttributes` lists event-property keys stripped from every
-outbound `/collect` payload (`Track`, `LogExposure`, `See` extras). Server
+outbound `/collect` payload (`Track`, exposure, `See` extras). Server
 evaluation is local, so private attrs never egress for evaluation either —
 only Track/exposure/error events ever leave the process.
 
@@ -79,8 +80,8 @@ it as the bucketing unit (falling back to `user_id ?? anonymous_id`):
 
 ```go
 c := shipeasy.NewClient(shipeasy.User{"user_id": "u_123", "company_id": "acme"})
-r := c.GetExperiment("new_dashboard", nil)
-_ = r
+a := c.Universe("dashboards").Assign()
+_ = a
 ```
 
 ## Sticky bucketing

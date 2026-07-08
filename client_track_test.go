@@ -67,32 +67,36 @@ func TestBoundClientTrackFallsBackToAnonymousID(t *testing.T) {
 	}
 }
 
-// The bound Client.LogExposure re-evaluates the experiment against the bound
-// attribute map and emits one exposure for an enrolled user — no user argument.
-func TestBoundClientLogExposureUsesBoundAttrs(t *testing.T) {
+// The bound Client.Universe(name).Assign() evaluates the universe against the
+// bound attribute map and auto-logs one exposure for an enrolled user — no user
+// argument.
+func TestBoundClientAssignUsesBoundAttrs(t *testing.T) {
 	resetGlobalsForTest()
 	defer resetGlobalsForTest()
 
 	cs := newCollectServer(t)
 	eng := cs.liveClient(Options{})
-	eng.exps = &expsBlob{Experiments: map[string]experiment{
-		"exp": {
-			Status:        "running",
-			Salt:          "saltvalue",
-			AllocationPct: 10000,
-			Groups:        []group{{Name: "control", Weight: 5000}, {Name: "treatment", Weight: 5000}},
+	eng.exps = &expsBlob{
+		Universes: map[string]universe{"u": {}},
+		Experiments: map[string]experiment{
+			"exp": {
+				Status:        "running",
+				Universe:      "u",
+				Salt:          "saltvalue",
+				AllocationPct: 10000,
+				Groups:        []group{{Name: "control", Weight: 5000}, {Name: "treatment", Weight: 5000}},
+			},
 		},
-	}}
+	}
 	eng.initialized = true
 	bindGlobal(eng)
 
 	c := NewClient(User{"user_id": "u42"})
-	want := c.GetExperiment("exp", nil)
-	if !want.InExperiment {
+	var want Assignment
+	cs.expect(1, func() { want = c.Universe("u").Assign() })
+	if !want.Enrolled {
 		t.Fatalf("precondition: u42 should be enrolled")
 	}
-
-	cs.expect(1, func() { c.LogExposure("exp") })
 
 	events := cs.all()
 	if len(events) != 1 {

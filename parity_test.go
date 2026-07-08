@@ -270,14 +270,14 @@ func TestNewOfflineClientFromSnapshot(t *testing.T) {
 	exps := map[string]any{
 		"experiments": map[string]any{
 			"exp": map[string]any{
-				"status": "running", "salt": "s", "allocationPct": 10000,
+				"status": "running", "universe": "u", "salt": "s", "allocationPct": 10000,
 				"groups": []any{
 					map[string]any{"name": "control", "weight": 5000, "params": map[string]any{"v": 1}},
 					map[string]any{"name": "treatment", "weight": 5000, "params": map[string]any{"v": 2}},
 				},
 			},
 		},
-		"universes": map[string]any{},
+		"universes": map[string]any{"u": map[string]any{}},
 	}
 
 	c := NewOfflineClientFromSnapshot(flags, exps)
@@ -294,9 +294,9 @@ func TestNewOfflineClientFromSnapshot(t *testing.T) {
 	} else if m, _ := v.(map[string]any); m["cta"] != "Buy" {
 		t.Errorf("offline config value = %v", v)
 	}
-	r := c.GetExperiment("exp", User{"user_id": "u"}, nil)
-	if !r.InExperiment {
-		t.Errorf("offline experiment should enrol identified user")
+	a := c.Universe("u").Assign(User{"user_id": "u"})
+	if !a.Enrolled {
+		t.Errorf("offline universe should enrol identified user")
 	}
 
 	// Overrides apply on top of the snapshot.

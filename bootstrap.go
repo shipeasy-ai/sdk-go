@@ -17,18 +17,31 @@ const defaultCDNBase = "https://cdn.shipeasy.ai"
 // into per-gate evaluation (a killed gate reads false in Flags), so the
 // standalone Killswitches map is empty for this SDK.
 type Bootstrap struct {
-	Flags        map[string]bool         `json:"flags"`
-	Configs      map[string]any          `json:"configs"`
-	Experiments  map[string]BootstrapExp `json:"experiments"`
-	Killswitches map[string]any          `json:"killswitches"`
+	Flags        map[string]bool             `json:"flags"`
+	Configs      map[string]any              `json:"configs"`
+	Experiments  map[string]BootstrapExp     `json:"experiments"`
+	Killswitches map[string]any              `json:"killswitches"`
+	// Universes carries per-universe param defaults so the browser can resolve
+	// universe(name).get(field) to a default even when the unit is not enrolled
+	// anywhere in the universe. Only universes referenced by a loaded experiment
+	// appear.
+	Universes map[string]BootstrapUniverse `json:"universes"`
 }
 
 // BootstrapExp is one experiment's assignment, keyed to match the browser SDK's
-// window.__SE_BOOTSTRAP shape.
+// window.__SE_BOOTSTRAP shape. Universe is the experiment's universe name so the
+// client can resolve universe(name).assign() by finding the enrolled experiment.
+// Params (when enrolled) is ALREADY merged (universeDefaults ⊕ variant).
 type BootstrapExp struct {
 	InExperiment bool   `json:"inExperiment"`
 	Group        string `json:"group"`
 	Params       any    `json:"params"`
+	Universe     string `json:"universe"`
+}
+
+// BootstrapUniverse is one universe's SSR handoff: the flattened param defaults.
+type BootstrapUniverse struct {
+	Defaults map[string]any `json:"defaults"`
 }
 
 // BootstrapTagOptions tunes the emitted <script> tags.
@@ -72,6 +85,7 @@ func (c *Engine) Evaluate(user User) Bootstrap {
 		Configs:      map[string]any{},
 		Experiments:  map[string]BootstrapExp{},
 		Killswitches: map[string]any{},
+		Universes:    map[string]BootstrapUniverse{},
 	}
 	if flags != nil {
 		for name, g := range flags.Gates {
@@ -91,13 +105,34 @@ func (c *Engine) Evaluate(user User) Bootstrap {
 	}
 	if exps != nil {
 		for name := range exps.Experiments {
-			if ov, ok := expOv[name]; ok {
-				b.Experiments[name] = BootstrapExp{ov.InExperiment, ov.Group, ov.Params}
-				continue
-			}
 			e := exps.Experiments[name]
-			r := evalExperiment(name, &e, flags, exps, user, sticky)
-			b.Experiments[name] = BootstrapExp{r.InExperiment, r.Group, r.Params}
+			uniName := e.Universe
+			// Per-universe param defaults so the client can resolve
+			// universe(name).get() even when the unit is not enrolled anywhere.
+			if _, seen := b.Universes[uniName]; !seen {
+				var defaults map[string]any
+				if uni, ok := exps.Universes[uniName]; ok {
+					defaults = paramDefaultsFromSchema(uni.ParamSchema)
+				}
+				if defaults == nil {
+					defaults = map[string]any{}
+				}
+				b.Universes[uniName] = BootstrapUniverse{Defaults: defaults}
+			}
+			var ov *ExperimentResult
+			if r, ok := expOv[name]; ok {
+				ov = &r
+			}
+			st := classifyOne(name, &e, flags, exps, user, sticky, ov)
+			if st.State == stateGroup {
+				params := st.Params
+				if params == nil {
+					params = map[string]any{}
+				}
+				b.Experiments[name] = BootstrapExp{InExperiment: true, Group: st.Group, Params: params, Universe: uniName}
+			} else {
+				b.Experiments[name] = BootstrapExp{InExperiment: false, Group: "control", Params: map[string]any{}, Universe: uniName}
+			}
 		}
 	}
 	return b

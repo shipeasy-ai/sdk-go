@@ -18,7 +18,7 @@ Users are taught exactly **two** things, and the docs must never drift from them
    `ConfigureForOffline()` — for setup.
 2. **`NewClient(user)`** — the cheap, user-bound handle for *all* reads
    (`GetFlag` / `GetFlagOr` / `GetFlagDetail` / `GetConfig` / `GetConfigOr` /
-   `GetKillswitch` / `GetExperiment` / `LogExposure` / `Track`).
+   `GetKillswitch` / `Track`, plus universe assignment via `Universe(name).Assign()`).
 
 Plus the package-level helpers that let users avoid the heavyweight object:
 `OverrideFlag` / `OverrideConfig` / `OverrideExperiment` / `ClearOverrides`,

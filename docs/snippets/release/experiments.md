@@ -1,18 +1,19 @@
-Evaluate the `{{EXPERIMENT_KEY}}` experiment and track the `{{SUCCESS_EVENT}}` conversion. Assumes `Configure()` ran at startup — see Installation.
+Assign a unit within the `{{EXPERIMENT_KEY}}` universe (a mutual-exclusion pool — the unit lands in <=1 experiment), read the assigned params, then record the `{{SUCCESS_EVENT}}` conversion on the same bound `Client`. Assumes `Configure()` ran at startup — see Installation.
 
-### Evaluate and render the assigned group
+### Assign within a universe and render the assigned group
 
 ```go
 // construct once per callsite (cheap; binds the user)
 c := shipeasy.NewClient(shipeasy.User{"user_id": "u_123"})
 
-// GetExperiment(name, defaultParams) — name is the experiment key;
-// defaultParams is returned as r.Params when the user isn't enrolled.
-r := c.GetExperiment("{{EXPERIMENT_KEY}}", map[string]any{"color": "blue"})
-if r.InExperiment {
-    p := r.Params.(map[string]any)
-    render(p["color"])
-}
+// Universe(name).Assign() → Assignment
+//   name  — the UNIVERSE name (not an experiment); the unit lands in <=1 experiment
+//   a.Name     — the experiment the unit landed in, or "" when not enrolled
+//   a.Group    — the assigned variant, or "" when not enrolled
+//   a.Enrolled — true iff enrolled (Group != "")
+//   a.Get(field, fallback) — variant override ?? universe default ?? fallback
+a := c.Universe("{{EXPERIMENT_KEY}}").Assign()
+render(a.Get("color", "blue")) // always safe — falls back when not enrolled
 ```
 
 ### Track the conversion

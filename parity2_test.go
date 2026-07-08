@@ -113,27 +113,20 @@ func TestTrackNoPrivateAttributesPassThrough(t *testing.T) {
 
 // ---- Feature B: manual exposure logging ----
 
-// A running, fully-allocated experiment enrols every user; LogExposure emits one
-// exposure with the resolved group.
-func TestLogExposureEnrolledEmitsOnce(t *testing.T) {
+// A running, fully-allocated experiment enrols every user; Universe().Assign()
+// auto-logs one exposure with the resolved group.
+func TestAssignEnrolledEmitsOneExposure(t *testing.T) {
 	cs := newCollectServer(t)
 	c := cs.liveClient(Options{})
-	c.exps = &expsBlob{Experiments: map[string]experiment{
-		"exp": {
-			Status:        "running",
-			Salt:          "saltvalue",
-			AllocationPct: 10000,
-			Groups:        []group{{Name: "control", Weight: 5000}, {Name: "treatment", Weight: 5000}},
-		},
-	}}
+	c.exps = runningExp("saltvalue", 10000,
+		[]group{{Name: "control", Weight: 5000}, {Name: "treatment", Weight: 5000}})
 	c.initialized = true
 
-	want := c.GetExperiment("exp", User{"user_id": "u42"}, nil)
-	if !want.InExperiment {
+	var got Assignment
+	cs.expect(1, func() { got = c.Universe("u").Assign(User{"user_id": "u42"}) })
+	if !got.Enrolled {
 		t.Fatalf("precondition: u42 should be enrolled")
 	}
-
-	cs.expect(1, func() { c.LogExposure("u42", "exp") })
 
 	events := cs.all()
 	if len(events) != 1 {
@@ -146,25 +139,42 @@ func TestLogExposureEnrolledEmitsOnce(t *testing.T) {
 	if ev["experiment"] != "exp" {
 		t.Errorf("experiment = %v, want exp", ev["experiment"])
 	}
-	if ev["group"] != want.Group {
-		t.Errorf("group = %v, want %v", ev["group"], want.Group)
+	if ev["group"] != got.Group {
+		t.Errorf("group = %v, want %v", ev["group"], got.Group)
 	}
 	if ev["user_id"] != "u42" {
 		t.Errorf("user_id = %v, want u42", ev["user_id"])
 	}
 }
 
-// Not enrolled (allocation 0) ⇒ no exposure POST at all.
-func TestLogExposureNotEnrolledNoOp(t *testing.T) {
+// A repeat assign() for the same (unit, experiment, group) is deduped — no second
+// exposure POST.
+func TestAssignExposureDeduped(t *testing.T) {
 	cs := newCollectServer(t)
 	c := cs.liveClient(Options{})
-	c.exps = &expsBlob{Experiments: map[string]experiment{
-		"exp": {Status: "running", Salt: "s", AllocationPct: 0, Groups: []group{{Name: "control", Weight: 10000}}},
-	}}
+	c.exps = runningExp("saltvalue", 10000, []group{{Name: "control", Weight: 10000}})
+	c.initialized = true
+
+	cs.expect(1, func() { c.Universe("u").Assign(User{"user_id": "u42"}) })
+	// Second assign for the same unit must NOT emit — assert no extra POST arrives.
+	c.Universe("u").Assign(User{"user_id": "u42"})
+	if got := cs.all(); len(got) != 1 {
+		t.Errorf("repeated assign should dedup the exposure, got %d events: %v", len(got), got)
+	}
+}
+
+// Not enrolled (allocation 0) ⇒ no exposure POST at all.
+func TestAssignNotEnrolledNoExposure(t *testing.T) {
+	cs := newCollectServer(t)
+	c := cs.liveClient(Options{})
+	c.exps = runningExp("s", 0, []group{{Name: "control", Weight: 10000}})
 	c.initialized = true
 
 	// No POST expected; just call and assert nothing was captured.
-	c.LogExposure("u42", "exp")
+	a := c.Universe("u").Assign(User{"user_id": "u42"})
+	if a.Enrolled {
+		t.Fatalf("allocation 0 should not enrol")
+	}
 	if got := cs.all(); len(got) != 0 {
 		t.Errorf("not-enrolled user should emit no exposure, got %v", got)
 	}
@@ -173,9 +183,12 @@ func TestLogExposureNotEnrolledNoOp(t *testing.T) {
 // ---- Feature C: sticky bucketing ----
 
 func runningExp(salt string, alloc int, groups []group) *expsBlob {
-	return &expsBlob{Experiments: map[string]experiment{
-		"exp": {Status: "running", Salt: salt, AllocationPct: alloc, Groups: groups},
-	}}
+	return &expsBlob{
+		Universes: map[string]universe{"u": {}},
+		Experiments: map[string]experiment{
+			"exp": {Status: "running", Universe: "u", Salt: salt, AllocationPct: alloc, Groups: groups},
+		},
+	}
 }
 
 // A weight change after a user is stickied keeps that user on their original
@@ -191,13 +204,13 @@ func TestStickyWeightChangeKeepsUser(t *testing.T) {
 	var firstGroup string
 	for _, u := range []string{"u1", "u2", "u3", "u4", "u5", "u6", "u7", "u8"} {
 		c.exps = runningExp("saltvalue", 10000, groupsA)
-		first := c.GetExperiment("exp", User{"user_id": u}, nil)
+		first := c.Universe("u").Assign(User{"user_id": u})
 		// Now flip weights heavily and ask a FRESH (no-store) client what the
 		// deterministic pick would be.
 		fresh := NewOfflineClientFromSnapshot(nil, nil)
 		fresh.exps = runningExp("saltvalue", 10000,
 			[]group{{Name: "control", Weight: 9999}, {Name: "treatment", Weight: 1}})
-		det := fresh.GetExperiment("exp", User{"user_id": u}, nil)
+		det := fresh.Universe("u").Assign(User{"user_id": u})
 		if first.Group != det.Group {
 			unit = u
 			firstGroup = first.Group
@@ -212,7 +225,7 @@ func TestStickyWeightChangeKeepsUser(t *testing.T) {
 	// must keep firstGroup.
 	c.exps = runningExp("saltvalue", 10000,
 		[]group{{Name: "control", Weight: 9999}, {Name: "treatment", Weight: 1}})
-	after := c.GetExperiment("exp", User{"user_id": unit}, nil)
+	after := c.Universe("u").Assign(User{"user_id": unit})
 	if after.Group != firstGroup {
 		t.Errorf("sticky weight change: group moved %q -> %q, want stable", firstGroup, after.Group)
 	}
@@ -230,8 +243,8 @@ func TestStickyAllocationShrink(t *testing.T) {
 	c.exps = runningExp("saltvalue", 10000, groups)
 	enrolled := map[string]string{}
 	for _, u := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
-		r := c.GetExperiment("exp", User{"user_id": u}, nil)
-		if r.InExperiment {
+		r := c.Universe("u").Assign(User{"user_id": u})
+		if r.Enrolled {
 			enrolled[u] = r.Group
 		}
 	}
@@ -245,9 +258,9 @@ func TestStickyAllocationShrink(t *testing.T) {
 
 	// Stickied users keep their group regardless of the shrink.
 	for u, g := range enrolled {
-		r := c.GetExperiment("exp", User{"user_id": u}, nil)
-		if !r.InExperiment || r.Group != g {
-			t.Errorf("stickied user %q: got {%v %q}, want in-experiment group %q", u, r.InExperiment, r.Group, g)
+		r := c.Universe("u").Assign(User{"user_id": u})
+		if !r.Enrolled || r.Group != g {
+			t.Errorf("stickied user %q: got {%v %q}, want in-experiment group %q", u, r.Enrolled, r.Group, g)
 		}
 	}
 
@@ -257,7 +270,7 @@ func TestStickyAllocationShrink(t *testing.T) {
 	fresh.exps = runningExp("saltvalue", 1, groups)
 	deniedSeen := false
 	for _, u := range []string{"zz1", "zz2", "zz3", "zz4", "zz5"} {
-		if !fresh.GetExperiment("exp", User{"user_id": u}, nil).InExperiment {
+		if !fresh.Universe("u").Assign(User{"user_id": u}).Enrolled {
 			deniedSeen = true
 			break
 		}
@@ -276,8 +289,8 @@ func TestStickySaltChangeReshuffles(t *testing.T) {
 	groups := []group{{Name: "control", Weight: 5000}, {Name: "treatment", Weight: 5000}}
 
 	c.exps = runningExp("oldsalt12345", 10000, groups)
-	first := c.GetExperiment("exp", User{"user_id": "user-x"}, nil)
-	if !first.InExperiment {
+	first := c.Universe("u").Assign(User{"user_id": "user-x"})
+	if !first.Enrolled {
 		t.Fatal("precondition: user-x enrolled")
 	}
 
@@ -291,8 +304,8 @@ func TestStickySaltChangeReshuffles(t *testing.T) {
 	// New salt → new prefix → stored entry (old prefix) ignored → re-bucket. The
 	// store is overwritten with the new prefix.
 	c.exps = runningExp("newsalt67890", 10000, groups)
-	after := c.GetExperiment("exp", User{"user_id": "user-x"}, nil)
-	if !after.InExperiment {
+	after := c.Universe("u").Assign(User{"user_id": "user-x"})
+	if !after.Enrolled {
 		t.Fatal("user-x should still enrol under the new salt")
 	}
 	newEntry := store.Get("user-x")["exp"]
@@ -310,8 +323,8 @@ func TestNoStickyStoreDeterministic(t *testing.T) {
 	c := NewOfflineClientFromSnapshot(nil, nil)
 	c.exps = runningExp("saltvalue", 10000,
 		[]group{{Name: "control", Weight: 5000}, {Name: "treatment", Weight: 5000}})
-	a := c.GetExperiment("exp", User{"user_id": "det"}, nil)
-	b := c.GetExperiment("exp", User{"user_id": "det"}, nil)
+	a := c.Universe("u").Assign(User{"user_id": "det"})
+	b := c.Universe("u").Assign(User{"user_id": "det"})
 	if a.Group != b.Group {
 		t.Errorf("no-store eval must be deterministic, got %q then %q", a.Group, b.Group)
 	}

@@ -18,11 +18,14 @@ func resetGlobalForTest() {
 func TestConfigureForTestingSeedsAndReplaces(t *testing.T) {
 	defer resetGlobalForTest()
 
-	ConfigureForTesting(TestOptions{
+	eng := ConfigureForTesting(TestOptions{
 		Flags:       map[string]bool{"new_checkout": true},
 		Configs:     map[string]any{"theme": "blue"},
 		Experiments: map[string]ExperimentOverride{"price_test": {Group: "treatment", Params: map[string]any{"price": 9}}},
 	})
+	// An experiment override surfaces through Universe().Assign() only when the
+	// experiment is a running candidate in the loaded blob, so seed one.
+	seedRunningExp(eng, "price_test")
 	c := NewClient(User{"user_id": "u_1"})
 	if !c.GetFlag("new_checkout") {
 		t.Fatal("seeded flag should be true")
@@ -30,9 +33,12 @@ func TestConfigureForTestingSeedsAndReplaces(t *testing.T) {
 	if v, _ := c.GetConfig("theme"); v != "blue" {
 		t.Fatalf("seeded config = %v, want blue", v)
 	}
-	exp := c.GetExperiment("price_test", nil)
-	if !exp.InExperiment || exp.Group != "treatment" {
-		t.Fatalf("seeded experiment = %+v", exp)
+	a := c.Universe("u").Assign()
+	if !a.Enrolled || a.Group != "treatment" {
+		t.Fatalf("seeded experiment = %+v", a)
+	}
+	if a.Get("price", 0) != 9 {
+		t.Fatalf("seeded experiment param price = %v, want 9", a.Get("price", 0))
 	}
 
 	// REPLACE (not first-wins): a second ConfigureForTesting wins.
@@ -44,7 +50,8 @@ func TestConfigureForTestingSeedsAndReplaces(t *testing.T) {
 
 func TestPackageOverridesAndClear(t *testing.T) {
 	defer resetGlobalForTest()
-	ConfigureForTesting(TestOptions{Flags: map[string]bool{"f": true}})
+	eng := ConfigureForTesting(TestOptions{Flags: map[string]bool{"f": true}})
+	seedRunningExp(eng, "e")
 	OverrideFlag("f", false)
 	OverrideConfig("c", 123)
 	OverrideExperiment("e", "B", map[string]any{"v": 2})
@@ -55,7 +62,7 @@ func TestPackageOverridesAndClear(t *testing.T) {
 	if v, _ := c.GetConfig("c"); v != 123 {
 		t.Fatalf("config override = %v", v)
 	}
-	if c.GetExperiment("e", nil).Group != "B" {
+	if c.Universe("u").Assign().Group != "B" {
 		t.Fatal("experiment override group")
 	}
 	// Test mode has no blob beneath, so ClearOverrides drops the seed too.

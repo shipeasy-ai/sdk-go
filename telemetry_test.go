@@ -46,7 +46,7 @@ func TestTelemetryFiresPerEntity(t *testing.T) {
 	c := NewEngine(Options{APIKey: "k", TelemetryURL: "https://e.x", HTTP: hc})
 	c.GetFlag("g", User{})
 	c.GetConfig("c")
-	c.GetExperiment("e", User{}, nil)
+	c.Universe("e").Assign(User{})
 
 	urls := collectURLs(ch, 3, 2*time.Second)
 	if len(urls) != 3 {
@@ -69,7 +69,7 @@ func TestTelemetryDisabled(t *testing.T) {
 	c := NewEngine(Options{APIKey: "k", TelemetryURL: "https://e.x", HTTP: hc, DisableTelemetry: true})
 	c.GetFlag("g", User{})
 	c.GetConfig("c")
-	c.GetExperiment("e", User{}, nil)
+	c.Universe("e").Assign(User{})
 
 	urls := collectURLs(ch, 1, 300*time.Millisecond)
 	if len(urls) != 0 {

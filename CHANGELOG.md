@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.14.0 — 2026-07-08
+
+### BREAKING — experiments are now read by universe, not by name
+
+The whole experiment read surface is replaced. A **universe is a
+mutual-exclusion pool**: a unit is enrolled in **at most one** experiment in it,
+so you ask a universe for an assignment instead of naming an experiment.
+`Engine.GetExperiment`, `Engine.LogExposure`/`LogExposureUser`,
+`Client.GetExperiment`, and `Client.LogExposure` are **removed**.
+
+```go
+// Before (removed):
+r := c.GetExperiment("checkout_button", map[string]any{"color": "red"})
+if r.InExperiment && r.Params.(map[string]any)["color"] == "green" { … }
+
+// After (bound Client):
+a := c.Universe("checkout").Assign()
+if a.Get("color", "red") == "green" { … }
+
+// After (heavyweight Engine): engine.Universe("checkout").Assign(user)
+```
+
+- **`Universe(name).Assign()`** (bound `Client`) / **`Universe(name).Assign(user)`**
+  (`Engine`) returns an `Assignment`:
+  - `.Name` — the experiment the unit landed in, or `""` when not enrolled.
+  - `.Group` — the assigned variant, or `""` when not enrolled.
+  - `.Enrolled` — `bool` (true iff `Group != ""`).
+  - `.Get(field, fallback)` — resolves **variant override ?? universe default ??
+    fallback**. Works even when not enrolled (you get the universe default),
+    because the universe now owns the param schema + defaults.
+- **Auto-exposure.** `Assign()` logs a single exposure when the unit is enrolled,
+  deduped per process (unit + experiment + group). The manual `LogExposure`
+  primitive is gone — reading *is* the exposure. No-op in test/offline mode.
+- **Mutual exclusion (pooled assignment), per-experiment holdout gates, reserved
+  headroom, and universe-default ⊕ variant param merge** are now honoured by
+  local eval, matching the edge. New experiment blob fields (`holdoutGate`,
+  `poolOffsetBp`, `poolSizeBp`, `reservedHeadroomBp`, `hashVersion`) and universe
+  `param_schema` are parsed. The SSR `Evaluate()` bootstrap now carries a
+  top-level `universes` defaults map and a `universe` field per experiment, with
+  the enrolled `params` pre-merged.
+- The internal `OverrideExperiment` test seam is retained: it *refines* an
+  experiment that lives in a universe (forces its variant) and surfaces through
+  `Universe().Assign()` when the experiment is a running candidate in the loaded
+  blob.
+
 ## 0.13.0 — 2026-07-08
 
 - **SDK self-monitoring for internal errors.** When one of the SDK's last-resort

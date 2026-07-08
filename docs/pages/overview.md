@@ -42,10 +42,10 @@ The whole SDK is exactly two calls:
    carries no api key and opens no connection; every read is local. Its methods
    take **no** user argument (the user is already bound):
    `GetFlag`, `GetFlagOr`, `GetFlagDetail`, `GetConfig`, `GetConfigOr`,
-   `GetExperiment`, `GetKillswitch`, plus `Track(event, props)` and
-   `LogExposure(experiment)`.
+   `Universe(name).Assign()`, `GetKillswitch`, plus `Track(event, props)`.
 
-So an experiment is end-to-end Client-only: bind → `GetExperiment` → `Track`.
+So an experiment is end-to-end Client-only: bind → `Universe(name).Assign()` →
+`Track`. `Assign()` auto-logs a single deduped exposure when the unit is enrolled.
 
 ```go
 c := shipeasy.NewClient(acct)            // acct is your own *Account
@@ -65,7 +65,7 @@ lives in the global config — failing loudly surfaces the misconfiguration).
 - [Flags](flags.md) — `GetFlag`, `GetFlagOr`, `GetFlagDetail`.
 - [Configs](configs.md) — `GetConfig`, `GetConfigOr`.
 - [Kill switches](killswitches.md) — `GetKillswitch`, named switches.
-- [Experiments](experiments.md) — `GetExperiment`, `ExperimentResult`, `Track`, `LogExposure`.
+- [Experiments](experiments.md) — `Universe(name).Assign()`, `Assignment`, `Track`.
 - [i18n](i18n.md) — server SSR loader tag + the browser SDK's `t()`.
 - [Error reporting](error-reporting.md) — the `See()` surface.
 - [Testing](testing.md) — `ConfigureForTesting`, `ConfigureForOffline`, the `Override*` helpers.

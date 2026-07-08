@@ -75,15 +75,15 @@ can't take down the poll loop.
 
 Reads never panic into your request path. Every runtime read on the bound
 `Client` — `GetFlag`, `GetFlagOr`, `GetFlagDetail`, `GetConfig`, `GetConfigOr`,
-`GetKillswitch`, `GetExperiment` — is wrapped so that even an unexpected panic is
-caught, logged, and the read returns its documented safe default (`GetFlag` →
-`false`, `GetConfig` → `(nil, false)`, `GetExperiment` → the control result with
-your `defaultParams`, `GetKillswitch` → `false`). You never need a `recover()`
-around a read. (Setup mistakes still fail loudly — `NewClient(user)` before
-`Configure` panics on purpose.)
+`GetKillswitch`, `Universe(name).Assign()` — is wrapped so that even an
+unexpected panic is caught, logged, and the read returns its documented safe
+default (`GetFlag` → `false`, `GetConfig` → `(nil, false)`, `Assign` → a
+not-enrolled `Assignment`, `GetKillswitch` → `false`). You never need a
+`recover()` around a read. (Setup mistakes still fail loudly — `NewClient(user)`
+before `Configure` panics on purpose.)
 
 `Options.LogLevel` controls the SDK's own log verbosity. The SDK logs its
-fire-and-forget failures (a failed `Track`/`LogExposure`/`see()` POST, a poll
+fire-and-forget failures (a failed `Track`/exposure/`see()` POST, a poll
 error, or a recovered panic) with a `[shipeasy] ` prefix. Levels, from quietest
 to loudest, are `silent`, `error`, `warn`, `info`, `debug`; a message at level L
 is printed only when your configured level is at least L. The default is `warn`;
