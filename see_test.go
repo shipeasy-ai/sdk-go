@@ -155,6 +155,32 @@ func TestSeeExtrasBeforeToAreSanitizedAndSent(t *testing.T) {
 	}
 }
 
+func TestSeeToInlineExtrasMergeOverPriorExtras(t *testing.T) {
+	c, rt := newCaptureClient(Options{})
+	// A prior .Extras(...) sets order_id + region; the inline .To(outcome, extras)
+	// merges on top (later wins), overriding order_id and adding attempt.
+	c.See(errors.New("x")).
+		CausesThe("checkout").
+		Extras(map[string]any{"order_id": "old", "region": "eu"}).
+		To("use cached prices", map[string]any{"order_id": "new", "attempt": 2})
+	waitFor(t, func() bool { return rt.count() == 1 })
+
+	ev := rt.events(t)[0]
+	if ev.Outcome != "use cached prices" {
+		t.Errorf("outcome = %q, want use cached prices", ev.Outcome)
+	}
+	if ev.Extras["order_id"] != "new" {
+		t.Errorf("order_id = %v, want new (inline extra wins)", ev.Extras["order_id"])
+	}
+	if ev.Extras["region"] != "eu" {
+		t.Errorf("region = %v, want eu (prior extra retained)", ev.Extras["region"])
+	}
+	// JSON round-trips numbers as float64.
+	if ev.Extras["attempt"] != float64(2) {
+		t.Errorf("attempt = %v, want 2", ev.Extras["attempt"])
+	}
+}
+
 func TestSeeViolationUsesViolationKind(t *testing.T) {
 	c, rt := newCaptureClient(Options{})
 	c.SeeViolation("large query").CausesThe("search results").To("be trimmed")

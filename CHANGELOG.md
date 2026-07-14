@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.17.0 — 2026-07-13
+
+### `See()`: inline extras on `.To`, no ordering footgun
+
+- **`.To(outcome, extras ...map[string]any)`** — the terminal now accepts the
+  extras inline, e.g.
+  `shipeasy.See(err).CausesThe("checkout").To("use cached prices", map[string]any{"order_id": id})`.
+  Each map is merged like a final `.Extras(...)` call (later map wins), folding
+  under any earlier `.Extras`. So there is no longer an order to remember. Existing
+  `.To(outcome)` call sites keep compiling unchanged (the argument is variadic).
+
+## 0.16.0 — 2026-07-08
+
+### Exposure fires on read, with a `Peek` opt-out
+
+`Universe(name).Assign()` is now **side-effect free**. The single experiment
+exposure fires **on read** — the first time an enrolled `Assignment` is read via
+`Get(field, fallback)` — instead of eagerly at `Assign()` time. Reading
+`Enrolled` / `Name` / `Group` never logs.
+
+- **New `Assignment.Peek(field, fallback any) any`** — the read-only counterpart
+  to `Get`: identical lookup (variant override ?? universe default ?? fallback),
+  but logs **no** exposure. Reach for it when you need a param without counting
+  the unit as exposed (logging, debugging, a pre-render peek).
+- Exposure is still deduped per process (unit + experiment + group), and is now
+  additionally **durably deduped server-side** per `(unit, experiment, group)`.
+
+**BEHAVIOUR CHANGE.** Code that called `Assign()` purely for its exposure
+side-effect (never reading a param) will no longer log one — read a param via
+`Get` to record the exposure.
+
+### Durable forced-but-gated ID & cohort/gate overrides
+
+The resolver now honours durable **ID overrides** and **cohort/gate overrides**
+that are *forced but still gated*: a matched override pins the group only when the
+unit passes targeting and isn't held out; ID overrides beat cohort overrides.
+This is consumed via the experiments blob — **no new user-facing SDK API**.
+Running experiments are byte-identical; the new ordering rides `hash_version: 3`.
+
 ## 0.15.0 — 2026-07-08
 
 ### Environment-derived network & telemetry (egress) defaults

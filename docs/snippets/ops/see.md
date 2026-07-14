@@ -27,6 +27,18 @@ if err := charge(order); err != nil {
 }
 ```
 
+### Or pass extras inline to `.To(outcome, extras)`
+
+```go
+if err := charge(order); err != nil {
+    // .To(outcome, extras) — the extras map is merged like a final .Extras()
+    // call (later map wins), so there is no ordering to remember.
+    shipeasy.See(err).
+        CausesThe("checkout").
+        To("use cached prices", map[string]any{"order_id": order.ID})
+}
+```
+
 ### Report a non-exception violation
 
 ```go

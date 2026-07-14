@@ -15,7 +15,10 @@ package shipeasy
 // Dispatch model (differs from TS, which uses a microtask): .To(outcome) is the
 // terminal — it builds the wire event and fire-and-forgets the POST to
 // /collect. CausesThe() and Extras() are chainable setters that may be called
-// in any order BEFORE .To(). If a chain never calls .To(), nothing is sent.
+// in any order BEFORE .To(). .To() also accepts the extras inline as trailing
+// arguments — .To(outcome, extras) — merged like a final .Extras() call, so
+// there is no ordering trap to remember. If a chain never calls .To(), nothing
+// is sent.
 //
 // If you don't know the consequence of an error, don't handle it here.
 
@@ -293,9 +296,16 @@ func (s *SeeChain) Extras(extras map[string]any) *SeeChain {
 
 // To is the terminal: it sets the outcome, builds the event, and fire-and-forgets
 // the report. Idempotent. Reporting never blocks or panics into caller code.
-func (s *SeeChain) To(outcome string) {
+//
+// Any extras maps passed inline are merged like a final .Extras() call (later
+// map wins), so .To(outcome, extras) is equivalent to .Extras(extras).To(outcome)
+// — there is no ordering trap to remember.
+func (s *SeeChain) To(outcome string, extras ...map[string]any) {
 	if s == nil || s.done {
 		return
+	}
+	for _, e := range extras {
+		s.Extras(e)
 	}
 	s.done = true
 	s.outcome = outcome

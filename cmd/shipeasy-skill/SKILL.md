@@ -76,13 +76,16 @@ paused := c.GetKillswitch("payments_paused")         // true = killed
 ## Experiments + track (Client-only, end to end)
 
 Experiments are read by **universe** — a mutual-exclusion pool; a unit lands in
-<=1 experiment. `Assign()` auto-logs a single deduped exposure when enrolled.
+<=1 experiment. `Assign()` is side-effect free; the single (deduped) exposure
+fires on the first enrolled `Get(...)`. Use `Peek(field, fallback)` to read a
+param without logging one.
 
 ```go
 c := shipeasy.NewClient(acct)                        // construct once per callsite
-a := c.Universe("checkout").Assign()                 // Assignment (no getExperiment)
+a := c.Universe("checkout").Assign()                 // Assignment (no getExperiment); no exposure yet
 // a.Enrolled bool, a.Name/a.Group string ("" when not enrolled)
-color := a.Get("color", "blue")                      // variant ?? universe default ?? fallback
+color := a.Get("color", "blue")                      // variant ?? universe default ?? fallback; first enrolled read logs the exposure
+_ = a.Peek("color", "blue")                          // same lookup, logs NO exposure
 
 c.Track("purchase", map[string]any{"amount": 49})    // conversion for the bound user
 ```
@@ -106,6 +109,9 @@ if err := chargeCard(o); err != nil {
         Extras(map[string]any{"order_id": o.ID}).
         To("use the backup processor")   // .To(...) is the terminal — sends the report
 }
+// Or pass extras inline (merged like a final .Extras — no ordering to remember):
+shipeasy.See(err).CausesThe("checkout").
+    To("use the backup processor", map[string]any{"order_id": o.ID})
 // Expected control flow reports NOTHING:
 shipeasy.ControlFlowException(err).Because("because empty-state path")
 ```

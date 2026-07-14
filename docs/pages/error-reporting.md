@@ -24,6 +24,18 @@ if err := chargeCard(order); err != nil {
 }
 ```
 
+You can also pass the extras inline as trailing arguments to `.To` —
+**`.To(outcome, extras)`** merges each map like a final `.Extras()` call (later
+map wins), so there is no ordering to remember:
+
+```go
+if err := chargeCard(order); err != nil {
+    shipeasy.See(err).
+        CausesThe("checkout").
+        To("use the backup processor", map[string]any{"order_id": order.ID})
+}
+```
+
 `See` is package-level — it reports against the configuration from `Configure`,
 so there is no client to thread through. Before `Configure` has run it logs a
 warning and returns a no-op chain — it never panics.
