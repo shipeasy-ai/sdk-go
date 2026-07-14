@@ -5,8 +5,13 @@ import "sort"
 // Assignment is the result of universe(name).Assign(user) — a unit's standing in
 // a universe. A universe is a mutual-exclusion pool, so a unit lands in AT MOST
 // ONE experiment. Never throws: an un-enrolled unit still resolves Get() to the
-// universe defaults (or your fallback). Reading is side-effect free — the single
-// exposure is logged once by Assign() when the unit is enrolled.
+// universe defaults (or your fallback).
+//
+// Exposure is logged ON READ (spec step 7): the single exposure fires the first
+// time an enrolled unit's param is actually read via Get(), not at Assign() time
+// — so an assignment that is computed but never read logs nothing. Deduped per
+// process; the durable per-(unit, experiment, group) dedup lives server-side.
+// Use Peek() to read without logging.
 type Assignment struct {
 	// Name is the experiment the unit landed in, or "" when not enrolled.
 	Name string
@@ -17,12 +22,35 @@ type Assignment struct {
 	// params is already merged (universeDefaults ⊕ variantOverride) when enrolled;
 	// defaults-only (or empty) when not.
 	params map[string]any
+	// onExpose fires the single exposure the first time an enrolled param is
+	// read; nil when not enrolled (nothing to expose). Deduped downstream.
+	onExpose func()
+	// exposed is a shared flag (pointer so value-copies of the Assignment share
+	// it) that guards onExpose to fire at most once per handle.
+	exposed *bool
 }
 
 // Get reads a resolved param: the assigned variant's override, else the universe
 // default, else fallback. Works even when not enrolled (the variant layer is
-// absent, so you get universeDefault ?? fallback).
+// absent, so you get universeDefault ?? fallback). The first enrolled read logs
+// the single exposure; use Peek to read without logging.
 func (a Assignment) Get(field string, fallback any) any {
+	// On-read exposure: the first param read of an enrolled assignment logs one
+	// exposure. Reading Enrolled/Name/Group does NOT log — only Get does.
+	if a.onExpose != nil && a.exposed != nil && !*a.exposed {
+		*a.exposed = true
+		a.onExpose()
+	}
+	return a.lookup(field, fallback)
+}
+
+// Peek reads a resolved param WITHOUT logging an exposure — the read-only
+// counterpart to Get (spec step 7 opt-out). Same lookup semantics as Get.
+func (a Assignment) Peek(field string, fallback any) any {
+	return a.lookup(field, fallback)
+}
+
+func (a Assignment) lookup(field string, fallback any) any {
 	if a.params != nil {
 		if v, ok := a.params[field]; ok {
 			return v
@@ -123,12 +151,23 @@ func (c *Engine) assignUniverse(universeName string, user User) Assignment {
 		}
 		st := classifyOne(cd.name, &exp, flags, exps, user, sticky, ov)
 		if st.State == stateGroup {
-			c.postExposure(user, cd.name, st.Group)
 			params, _ := st.Params.(map[string]any)
 			if params == nil {
 				params = map[string]any{}
 			}
-			return Assignment{Name: cd.name, Group: st.Group, Enrolled: true, params: params}
+			// On-read exposure (spec step 7): defer the single exposure to the
+			// first param read via onExpose, instead of firing it here at assign
+			// time.
+			name, group := cd.name, st.Group
+			exposed := false
+			return Assignment{
+				Name:     name,
+				Group:    group,
+				Enrolled: true,
+				params:   params,
+				exposed:  &exposed,
+				onExpose: func() { c.postExposure(user, name, group) },
+			}
 		}
 		// "holdout"/"out": try the next candidate — under pooling only one slice
 		// can match, so the loop naturally lands on the winner (or falls through).

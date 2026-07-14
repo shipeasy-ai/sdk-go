@@ -11,8 +11,9 @@ c := shipeasy.NewClient(shipeasy.User{"user_id": "u_123"})
 //   a.Name     — the experiment the unit landed in, or "" when not enrolled
 //   a.Group    — the assigned variant, or "" when not enrolled
 //   a.Enrolled — true iff enrolled (Group != "")
-//   a.Get(field, fallback) — variant override ?? universe default ?? fallback
-a := c.Universe("{{EXPERIMENT_KEY}}").Assign()
+//   a.Get(field, fallback)  — variant override ?? universe default ?? fallback; first enrolled read logs one exposure
+//   a.Peek(field, fallback) — same lookup, but logs NO exposure
+a := c.Universe("{{EXPERIMENT_KEY}}").Assign() // side-effect free; exposure fires on the first Get
 render(a.Get("color", "blue")) // always safe — falls back when not enrolled
 ```
 

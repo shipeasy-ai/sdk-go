@@ -2,9 +2,10 @@
 
 Experiments are read by **universe**. A universe is a mutual-exclusion pool: a
 unit lands in **at most one** experiment in it. `Assign()` picks that experiment
-(if any), returns the assigned group plus its resolved parameters, and auto-logs
-a single (deduped) exposure. You read parameters with
-`Assign(...).Get(field, fallback)` and record a conversion with `Track`.
+(if any) and returns the assigned group plus its resolved parameters — it is
+side-effect free. The single (deduped) exposure fires **on read**: the first time
+you read a param with `Assign(...).Get(field, fallback)`. Use `Peek(field,
+fallback)` to read without logging one. Record a conversion with `Track`.
 
 ## Read an experiment
 
@@ -32,13 +33,21 @@ type Assignment struct {
 }
 
 // Get resolves a param: variant override, else the universe default, else fallback.
+// The first enrolled Get logs the single (deduped) exposure.
 func (a Assignment) Get(field string, fallback any) any
+
+// Peek resolves a param the same way, but WITHOUT logging an exposure.
+func (a Assignment) Peek(field string, fallback any) any
 ```
 
 When the unit isn't enrolled (targeting/holdout/allocation), `Enrolled` is
 `false`, `Group` and `Name` are `""`, and `Get(field, fallback)` returns the
 universe default if there is one, else your `fallback` — so reading a param is
 always safe.
+
+Reading `Enrolled` / `Name` / `Group` never logs an exposure — only `Get` does.
+Reach for `Peek` when you need a param but don't want to count the unit as
+exposed (e.g. logging, debugging, or a pre-render peek).
 
 ```go
 a := c.Universe("hero_cta").Assign()
@@ -67,9 +76,11 @@ no-op under `ConfigureForTesting` / `ConfigureForOffline`.
 
 ## Exposure logging
 
-By default `Assign()` auto-logs a single exposure when the unit is enrolled,
-deduped per process (unit + experiment + group) so repeated calls in a
-long-running server don't spam `/collect`. Exposures are fire-and-forget and a
-no-op under `ConfigureForTesting` / `ConfigureForOffline`.
+`Assign()` is side-effect free; the single exposure fires **on read** — the first
+enrolled `Get(...)` logs it. It is deduped per process (unit + experiment +
+group) so repeated reads in a long-running server don't spam `/collect`, and
+durably deduped server-side per `(unit, experiment, group)`. Read a param with
+`Peek(field, fallback)` to opt out — same lookup, no exposure. Exposures are
+fire-and-forget and a no-op under `ConfigureForTesting` / `ConfigureForOffline`.
 
 See [Advanced](advanced.md) for `bucketBy` and sticky bucketing.

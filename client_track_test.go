@@ -92,11 +92,12 @@ func TestBoundClientAssignUsesBoundAttrs(t *testing.T) {
 	bindGlobal(eng)
 
 	c := NewClient(User{"user_id": "u42"})
-	var want Assignment
-	cs.expect(1, func() { want = c.Universe("u").Assign() })
+	// On-read exposure: Assign() alone logs nothing; the first Get() fires it.
+	want := c.Universe("u").Assign()
 	if !want.Enrolled {
 		t.Fatalf("precondition: u42 should be enrolled")
 	}
+	cs.expect(1, func() { want.Get("anything", nil) })
 
 	events := cs.all()
 	if len(events) != 1 {

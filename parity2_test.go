@@ -113,8 +113,8 @@ func TestTrackNoPrivateAttributesPassThrough(t *testing.T) {
 
 // ---- Feature B: manual exposure logging ----
 
-// A running, fully-allocated experiment enrols every user; Universe().Assign()
-// auto-logs one exposure with the resolved group.
+// A running, fully-allocated experiment enrols every user; on the first Get()
+// the Assignment auto-logs one exposure with the resolved group.
 func TestAssignEnrolledEmitsOneExposure(t *testing.T) {
 	cs := newCollectServer(t)
 	c := cs.liveClient(Options{})
@@ -122,11 +122,15 @@ func TestAssignEnrolledEmitsOneExposure(t *testing.T) {
 		[]group{{Name: "control", Weight: 5000}, {Name: "treatment", Weight: 5000}})
 	c.initialized = true
 
-	var got Assignment
-	cs.expect(1, func() { got = c.Universe("u").Assign(User{"user_id": "u42"}) })
+	// On-read exposure: Assign() alone logs nothing; the first Get() fires it.
+	got := c.Universe("u").Assign(User{"user_id": "u42"})
 	if !got.Enrolled {
 		t.Fatalf("precondition: u42 should be enrolled")
 	}
+	if pre := cs.all(); len(pre) != 0 {
+		t.Fatalf("assign() alone must not emit an exposure, got %v", pre)
+	}
+	cs.expect(1, func() { got.Get("anything", nil) })
 
 	events := cs.all()
 	if len(events) != 1 {
@@ -145,9 +149,29 @@ func TestAssignEnrolledEmitsOneExposure(t *testing.T) {
 	if ev["user_id"] != "u42" {
 		t.Errorf("user_id = %v, want u42", ev["user_id"])
 	}
+	// A second Get() on the same handle is deduped — no extra POST.
+	got.Get("again", nil)
+	if after := cs.all(); len(after) != 1 {
+		t.Errorf("second read should dedup, got %d events: %v", len(after), after)
+	}
 }
 
-// A repeat assign() for the same (unit, experiment, group) is deduped — no second
+// Peek() reads a param WITHOUT logging an exposure (on-read opt-out).
+func TestAssignPeekDoesNotEmitExposure(t *testing.T) {
+	cs := newCollectServer(t)
+	c := cs.liveClient(Options{})
+	c.exps = runningExp("saltvalue", 10000, []group{{Name: "control", Weight: 10000}})
+	c.initialized = true
+
+	a := c.Universe("u").Assign(User{"user_id": "u42"})
+	a.Peek("anything", nil)
+	if got := cs.all(); len(got) != 0 {
+		t.Errorf("Peek must not emit an exposure, got %v", got)
+	}
+	cs.expect(1, func() { a.Get("anything", nil) }) // a real read still logs
+}
+
+// A repeat read for the same (unit, experiment, group) is deduped — no second
 // exposure POST.
 func TestAssignExposureDeduped(t *testing.T) {
 	cs := newCollectServer(t)
@@ -155,26 +179,27 @@ func TestAssignExposureDeduped(t *testing.T) {
 	c.exps = runningExp("saltvalue", 10000, []group{{Name: "control", Weight: 10000}})
 	c.initialized = true
 
-	cs.expect(1, func() { c.Universe("u").Assign(User{"user_id": "u42"}) })
-	// Second assign for the same unit must NOT emit — assert no extra POST arrives.
-	c.Universe("u").Assign(User{"user_id": "u42"})
+	cs.expect(1, func() { c.Universe("u").Assign(User{"user_id": "u42"}).Get("x", nil) })
+	// Second assign+read for the same unit must NOT emit — assert no extra POST.
+	c.Universe("u").Assign(User{"user_id": "u42"}).Get("x", nil)
 	if got := cs.all(); len(got) != 1 {
-		t.Errorf("repeated assign should dedup the exposure, got %d events: %v", len(got), got)
+		t.Errorf("repeated read should dedup the exposure, got %d events: %v", len(got), got)
 	}
 }
 
-// Not enrolled (allocation 0) ⇒ no exposure POST at all.
+// Not enrolled (allocation 0) ⇒ no exposure POST even when read.
 func TestAssignNotEnrolledNoExposure(t *testing.T) {
 	cs := newCollectServer(t)
 	c := cs.liveClient(Options{})
 	c.exps = runningExp("s", 0, []group{{Name: "control", Weight: 10000}})
 	c.initialized = true
 
-	// No POST expected; just call and assert nothing was captured.
+	// No POST expected; call, read, and assert nothing was captured.
 	a := c.Universe("u").Assign(User{"user_id": "u42"})
 	if a.Enrolled {
 		t.Fatalf("allocation 0 should not enrol")
 	}
+	a.Get("anything", nil)
 	if got := cs.all(); len(got) != 0 {
 		t.Errorf("not-enrolled user should emit no exposure, got %v", got)
 	}

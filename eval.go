@@ -58,6 +58,20 @@ type experiment struct {
 	// HashVersion >= 2 enables pooled allocation (with a slice). Absent/1 falls
 	// back to the legacy independent per-experiment allocation salt.
 	HashVersion *int `json:"hashVersion"`
+
+	// IdOverrides (spec step 1, tier 1) maps a bucketing-unit value → the forced
+	// group. CohortOverrides (tier 2) is a priority-ordered gate→group list. Both
+	// are forced-but-gated: a matched override pins the group (bypassing allocation
+	// + the weighted pick) only if the unit still passes targeting + holdout. ID
+	// overrides win over cohort overrides. Net-new, apply on every hash_version.
+	IdOverrides     map[string]string `json:"idOverrides"`
+	CohortOverrides []cohortOverride  `json:"cohortOverrides"`
+}
+
+type cohortOverride struct {
+	Gate     string `json:"gate"`
+	Group    string `json:"group"`
+	Priority int    `json:"priority"`
 }
 
 type group struct {
@@ -337,6 +351,23 @@ type expStanding struct {
 // SDK's real gate evaluation. holdoutRange is the universe carve-out (nil when
 // absent); paramDefaults are the universe param defaults merged under every
 // returned group's params.
+// resolveForcedGroup resolves a forced override group for uid (spec step 1): ID
+// overrides (tier 1) beat cohort/GK overrides (tier 2); within cohort overrides
+// the first (pre-sorted by priority) gate that passes wins. Returns the forced
+// group name or "". The caller applies eligibility + group-existence
+// (forced-but-gated). Mirrors @shipeasy/core resolveForcedGroup.
+func resolveForcedGroup(exp *experiment, uid string, evalGateFn func(string) bool) string {
+	if g, ok := exp.IdOverrides[uid]; ok && g != "" {
+		return g
+	}
+	for _, co := range exp.CohortOverrides {
+		if evalGateFn(co.Gate) {
+			return co.Group
+		}
+	}
+	return ""
+}
+
 func classifyExperiment(
 	name string,
 	exp *experiment,
@@ -379,6 +410,24 @@ func classifyExperiment(
 	// in) and returns the stored group. A salt-prefix mismatch or a now-missing
 	// group falls through to re-bucket + overwrite below.
 	salt8 := saltPrefix(exp.Salt)
+
+	// Durable overrides (spec step 1, forced-but-gated). Reached only after the
+	// unit passes targeting and is not held out, so an override may now pin the
+	// group — bypassing allocation + the weighted pick but NOT the gates above. ID
+	// overrides (tier 1) beat cohort/GK overrides (tier 2); a forced group that no
+	// longer exists falls through to normal allocation. No-op when unconfigured, so
+	// v1/v2 stay byte-identical. Mirrors @shipeasy/core classifyExperiment.
+	if forced := resolveForcedGroup(exp, uid, evalGateFn); forced != "" {
+		for _, g := range exp.Groups {
+			if g.Name == forced {
+				if sticky != nil && name != "" {
+					sticky.Set(uid, name, StickyEntry{G: forced, S: salt8})
+				}
+				return asGroup(g)
+			}
+		}
+	}
+
 	if sticky != nil && name != "" {
 		if entry, ok := sticky.Get(uid)[name]; ok && entry.S == salt8 {
 			for _, g := range exp.Groups {
