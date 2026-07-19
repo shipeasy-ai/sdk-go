@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.17.1 — 2026-07-19
+
+### Fix: honor the gatekeeper `stack` in local gate evaluation
+
+Local gate evaluation now evaluates a gate's ordered gatekeeper **`stack`** when
+the flags blob ships one, instead of reading only the flat `rules` + `rolloutPct`
+fields. The flat fields are a lossy approximation of a modern gate: a whitelist
+condition at 100% followed by a 0% public rollout flattens to
+`rules:[project_id in [...]], rolloutPct:0`, which the flat path wrongly read as
+"matches the whitelist AND is in the 0% bucket" = never true. The stack is tried
+top-to-bottom and the gate passes on the first entry whose rules match AND whose
+bucket hits, matching `@shipeasy/core`'s `evalGatekeeper` and the edge worker.
+Per-condition rollout %, `pass:"any"`, `bucketBy`, per-entry `salt`, and `ramp`
+(time-interpolated rollout) are all honored. A gate **without** a stack keeps the
+exact legacy flat behavior. No public API change.
+
 ## 0.17.0 — 2026-07-13
 
 ### `See()`: inline extras on `.To`, no ordering footgun

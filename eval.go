@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"time"
 )
 
 type ExperimentResult struct {
@@ -20,6 +21,40 @@ type gate struct {
 	Salt       string `json:"salt"`
 	RolloutPct int    `json:"rolloutPct"`
 	Rules      []rule `json:"rules"`
+	// Stack is the ordered gatekeeper stack that modern gates ship in the KV
+	// blob. When non-empty it — not the flat Rules/RolloutPct above — drives
+	// evaluation: entries are tried top-to-bottom and the gate passes on the
+	// first whose rules match AND whose bucket hits. The flat columns remain
+	// only as a lossy approximation for older SDKs (a whitelist condition at
+	// 100% followed by a 0% public rollout collapses to rolloutPct:0, which the
+	// flat path wrongly reads as "never"). Mirrors @shipeasy/core Gatekeeper.stack.
+	Stack []stackEntry `json:"stack"`
+}
+
+// ramp is a rollout % that linearly interpolates from From→To over
+// [StartAt, StartAt+DurationMs] against wall-clock now (epoch ms). Mirrors
+// @shipeasy/core Ramp.
+type ramp struct {
+	From       int   `json:"from"`
+	To         int   `json:"to"`
+	StartAt    int64 `json:"startAt"`
+	DurationMs int64 `json:"durationMs"`
+}
+
+// stackEntry is one entry in a gate's ordered gatekeeper stack. A "condition"
+// gates on its rules then buckets at its own rollout (absent RolloutPct ⇒ 100%:
+// every match passes); a "rollout" buckets everyone who reached it (absent ⇒
+// 0%). RolloutPct is a pointer so "absent" is distinguishable from an explicit 0.
+// Mirrors @shipeasy/core StackedGateEntry.
+type stackEntry struct {
+	ID         string `json:"id"`
+	Type       string `json:"type"` // "condition" | "rollout"
+	Pass       string `json:"pass"` // "all" | "any" (condition only; default "all")
+	Rules      []rule `json:"rules"`
+	RolloutPct *int   `json:"rolloutPct"`
+	BucketBy   string `json:"bucketBy"`
+	Salt       string `json:"salt"`
+	Ramp       *ramp  `json:"ramp"`
 }
 
 type rule struct {
@@ -264,11 +299,134 @@ func indexOf(s, sub string) int {
 	return -1
 }
 
+// clampPct pins a basis-points value into [0, 10000].
+func clampPct(n int) int {
+	if n < 0 {
+		return 0
+	}
+	if n > 10000 {
+		return 10000
+	}
+	return n
+}
+
+// effectivePct is the rollout % for a stack entry at time `now` (epoch ms). A
+// condition with no explicit rolloutPct defaults to 100%; a rollout to 0%. A
+// ramp overrides the static % via truncating-toward-zero integer division — the
+// cross-SDK contract (experiment-platform/04-evaluation.md). Mirrors @shipeasy/core.
+func effectivePct(e stackEntry, now int64) int {
+	var base int
+	if e.Type == "condition" {
+		if e.RolloutPct != nil {
+			base = *e.RolloutPct
+		} else {
+			base = 10000
+		}
+	} else {
+		if e.RolloutPct != nil {
+			base = *e.RolloutPct
+		} else {
+			base = 0
+		}
+	}
+	r := e.Ramp
+	if r == nil {
+		return base
+	}
+	if now <= r.StartAt {
+		return r.From
+	}
+	if now >= r.StartAt+r.DurationMs {
+		return r.To
+	}
+	delta := int64(r.To - r.From) // signed
+	elapsed := now - r.StartAt
+	// 64-bit intermediate; Go integer division truncates toward zero, matching
+	// Math.trunc in the canonical evaluator.
+	pct := int64(r.From) + (delta*elapsed)/r.DurationMs
+	return clampPct(int(pct))
+}
+
+// bucketHit hashes the caller into [0,10000) and tests against pct. No-unit
+// contract (experiment-platform/18): a fully-rolled bucket is on for everyone
+// without a unit id; a fractional one needs a stable unit, so it is off.
+func bucketHit(pct int, uid, salt string) bool {
+	if pct <= 0 {
+		return false
+	}
+	if uid == "" {
+		return pct >= 10000
+	}
+	if pct >= 10000 {
+		return true
+	}
+	return Murmur3(salt+":"+uid)%10000 < uint32(pct)
+}
+
+// evalStackEntry evaluates one gatekeeper stack entry for a caller. Mirrors
+// @shipeasy/core evalStackEntry.
+func evalStackEntry(e stackEntry, u User, fallbackSalt string, now int64) bool {
+	if e.Type == "condition" {
+		if len(e.Rules) == 0 {
+			return false
+		}
+		matched := false
+		if e.Pass == "any" {
+			for _, r := range e.Rules {
+				if matchRule(r, u) {
+					matched = true
+					break
+				}
+			}
+		} else {
+			matched = true
+			for _, r := range e.Rules {
+				if !matchRule(r, u) {
+					matched = false
+					break
+				}
+			}
+		}
+		if !matched {
+			return false
+		}
+		// Rules matched — bucket at the per-condition rollout. A distinct default
+		// salt (the entry id) keeps each step's bucket independent yet stable.
+		salt := e.Salt
+		if salt == "" {
+			salt = e.ID
+		}
+		if salt == "" {
+			salt = fallbackSalt
+		}
+		return bucketHit(effectivePct(e, now), pickIdentifier(u, e.BucketBy), salt)
+	}
+	// rollout — salt fallback is the gate salt so existing entries don't re-bucket.
+	salt := e.Salt
+	if salt == "" {
+		salt = fallbackSalt
+	}
+	return bucketHit(effectivePct(e, now), pickIdentifier(u, e.BucketBy), salt)
+}
+
 func evalGate(g gate, u User) bool {
 	if enabled(g.Killswitch) {
 		return false
 	}
 	if !enabled(g.Enabled) {
+		return false
+	}
+	// Modern gatekeepers ship an ordered stack; evaluate it top-to-bottom and
+	// pass on the first entry whose rules match AND whose bucket hits. This is the
+	// canonical model — the flat Rules/RolloutPct below are a lossy approximation.
+	// Mirrors @shipeasy/core evalGatekeeper — keep the two in sync.
+	if len(g.Stack) > 0 {
+		now := time.Now().UnixMilli()
+		for _, e := range g.Stack {
+			if evalStackEntry(e, u, g.Salt, now) {
+				return true
+			}
+		}
 		return false
 	}
 	for _, r := range g.Rules {
