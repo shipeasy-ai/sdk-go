@@ -161,6 +161,12 @@ func (c *Engine) BootstrapScriptTag(user User, opts BootstrapTagOptions) string 
 	if opts.AnonID != "" {
 		attrs = append(attrs, attr("data-anon-id", opts.AnonID))
 	}
+	// Carry the server-identified user so the browser SDK adopts the same
+	// identity on first paint (no anon→identified flip). anonymous_id is
+	// dropped — it already rides data-anon-id.
+	if du, ok := identityAttrs(user); ok {
+		attrs = append(attrs, attr("data-user", du))
+	}
 	return `<script src="` + html.EscapeString(base+"/sdk/bootstrap.js") + `" ` +
 		strings.Join(attrs, " ") + `></script>`
 }
@@ -187,6 +193,32 @@ func cdnBase(override string) string {
 
 func attr(name, val string) string {
 	return name + `="` + html.EscapeString(val) + `"`
+}
+
+// identityAttrs returns the JSON object of the user's identity traits for the
+// data-user attribute, dropping anonymous_id (it rides data-anon-id) and any
+// nil values. The bool is false when nothing is left after filtering (an
+// anonymous or empty user) so no PII rides the tag. Go's json.Marshal sorts
+// map keys, so the output is deterministic.
+func identityAttrs(user User) (string, bool) {
+	if len(user) == 0 {
+		return "", false
+	}
+	traits := make(map[string]any, len(user))
+	for k, v := range user {
+		if k == "anonymous_id" || v == nil {
+			continue
+		}
+		traits[k] = v
+	}
+	if len(traits) == 0 {
+		return "", false
+	}
+	b, err := json.Marshal(traits)
+	if err != nil {
+		return "", false
+	}
+	return string(b), true
 }
 
 func jsonStr(v any) string {

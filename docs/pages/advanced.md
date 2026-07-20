@@ -40,6 +40,17 @@ head := shipeasy.BootstrapScriptTag(user, shipeasy.BootstrapTagOptions{AnonID: a
 `BootstrapTagOptions` accepts `AnonID`, `I18nProfile`, and `BaseURL` (defaults to
 `https://cdn.shipeasy.ai`).
 
+### Identity coherence — no anon→identified flip
+
+When the `user` you evaluate is identified (any attribute other than
+`anonymous_id`), the tag also carries the identity as a `data-user` attribute
+(the JSON of the user's attributes, minus `anonymous_id` — that already rides
+`data-anon-id`). The browser SDK adopts that identity on first paint, so the
+client buckets as the **same** user the server did — no anonymous→identified
+flip after hydration. An anonymous request (only `anonymous_id`, or an empty
+user) emits **no** `data-user`, so no PII rides the tag. See
+[18-identity-bucketing.md](https://github.com/shipeasy-ai/experiment-platform/blob/main/18-identity-bucketing.md).
+
 ## Exposure logging
 
 `Universe(name).Assign()` auto-logs a single exposure when the unit is enrolled —

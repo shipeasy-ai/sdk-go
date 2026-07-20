@@ -84,6 +84,45 @@ func TestBootstrapScriptTagNoAnonWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestBootstrapScriptTagCarriesIdentifiedUser(t *testing.T) {
+	c := seedClient()
+	user := User{"user_id": "u1", "email": "u1@example.com", "anonymous_id": "anon-1"}
+	tag := c.BootstrapScriptTag(user, BootstrapTagOptions{AnonID: "anon-1"})
+
+	// anonymous_id still rides data-anon-id.
+	if !strings.Contains(tag, `data-anon-id="anon-1"`) {
+		t.Fatalf("expected data-anon-id on the tag: %s", tag)
+	}
+
+	// data-user is the HTML-escaped JSON of the traits minus anonymous_id.
+	// Go's json.Marshal sorts map keys, so the object is deterministic.
+	wantJSON := `{"email":"u1@example.com","user_id":"u1"}`
+	escaped := strings.NewReplacer(`"`, "&#34;", "&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(wantJSON)
+	if !strings.Contains(tag, `data-user="`+escaped+`"`) {
+		t.Fatalf("tag missing data-user=%q (escaped %q)\n%s", wantJSON, escaped, tag)
+	}
+	// anonymous_id must not leak into data-user.
+	raw := tag[strings.Index(tag, `data-user="`)+len(`data-user="`):]
+	raw = raw[:strings.Index(raw, `"`)]
+	if strings.Contains(raw, "anonymous_id") {
+		t.Fatalf("data-user must not carry anonymous_id: %s", raw)
+	}
+}
+
+func TestBootstrapScriptTagNoUserWhenAnonymous(t *testing.T) {
+	c := seedClient()
+	// Only an anonymous_id => no identity, no data-user.
+	tag := c.BootstrapScriptTag(User{"anonymous_id": "anon-1"}, BootstrapTagOptions{AnonID: "anon-1"})
+	if strings.Contains(tag, "data-user") {
+		t.Fatalf("anonymous user must not emit data-user: %s", tag)
+	}
+	// Empty user => no data-user either.
+	tag = c.BootstrapScriptTag(User{}, BootstrapTagOptions{})
+	if strings.Contains(tag, "data-user") {
+		t.Fatalf("empty user must not emit data-user: %s", tag)
+	}
+}
+
 func TestI18nScriptTag(t *testing.T) {
 	c := seedClient()
 	tag := c.I18nScriptTag("client_pub", "fr:prod", BootstrapTagOptions{})

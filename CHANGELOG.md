@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.18.0 — 2026-07-19
+
+### Feat: carry the server-identified user on the SSR bootstrap tag as `data-user`
+
+`BootstrapScriptTag` now emits a `data-user` attribute — the HTML-escaped JSON of
+the evaluated user's attributes, **minus `anonymous_id`** (that already rides
+`data-anon-id`) — whenever the request is identified (any attribute beyond
+`anonymous_id`). The browser SDK reads it off the `<script data-se-bootstrap>` tag
+and adopts that identity on first paint, so the client buckets as the **same**
+user the server did — killing the anonymous→identified flip after hydration for a
+Go-backend + JS-frontend app. An anonymous request (only `anonymous_id`, or an
+empty user) emits **no** `data-user`, so no PII rides the tag. Keys are sorted
+deterministically. No API change — the identity is the same `user` already passed
+to `BootstrapScriptTag`. See
+[18-identity-bucketing.md](https://github.com/shipeasy-ai/experiment-platform/blob/main/18-identity-bucketing.md).
+
 ## 0.17.1 — 2026-07-19
 
 ### Fix: honor the gatekeeper `stack` in local gate evaluation
