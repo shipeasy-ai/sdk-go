@@ -231,7 +231,7 @@ ListI18nProfiles List i18n profiles
 
 Returns every locale profile in the project (e.g. `en:prod`, `fr:prod`).
 
-**Use case:** Discover which locale profiles exist before pushing keys or publishing a chunk.
+**Use case:** Discover which locale profiles exist before pushing keys or publishing.
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @return ApiListI18nProfilesRequest
@@ -390,18 +390,18 @@ type ApiPublishI18nProfileRequest struct {
 	ctx context.Context
 	ApiService *ProfilesAPIService
 	profileId string
-	publishI18nProfileRequest *PublishI18nProfileRequest
 	xProjectId *string
-}
-
-func (r ApiPublishI18nProfileRequest) PublishI18nProfileRequest(publishI18nProfileRequest PublishI18nProfileRequest) ApiPublishI18nProfileRequest {
-	r.publishI18nProfileRequest = &publishI18nProfileRequest
-	return r
+	body *map[string]interface{}
 }
 
 // Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it).
 func (r ApiPublishI18nProfileRequest) XProjectId(xProjectId string) ApiPublishI18nProfileRequest {
 	r.xProjectId = &xProjectId
+	return r
+}
+
+func (r ApiPublishI18nProfileRequest) Body(body map[string]interface{}) ApiPublishI18nProfileRequest {
+	r.body = &body
 	return r
 }
 
@@ -412,7 +412,7 @@ func (r ApiPublishI18nProfileRequest) Execute() (*PublishI18nProfileResponse, *h
 /*
 PublishI18nProfile Publish a profile live
 
-Publish a profile to the CDN — rebuild its KV snapshot + purge the edge. Publishing is PROFILE-WIDE: the whole profile is snapshotted into one KV blob, so the optional `chunk` in the body is an audit label only (it does not scope what ships).
+Publish a profile to the CDN — rebuild its KV snapshot + purge the edge. Publishing is PROFILE-WIDE: the whole profile is snapshotted into one KV blob, so the body takes no options.
 
 **Use case:** Ship the latest translations live after pushing/updating keys.
 
@@ -449,9 +449,6 @@ func (a *ProfilesAPIService) PublishI18nProfileExecute(r ApiPublishI18nProfileRe
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
-	if r.publishI18nProfileRequest == nil {
-		return localVarReturnValue, nil, reportError("publishI18nProfileRequest is required and must be specified")
-	}
 
 	// to determine the Content-Type header
 	localVarHTTPContentTypes := []string{"application/json"}
@@ -474,7 +471,7 @@ func (a *ProfilesAPIService) PublishI18nProfileExecute(r ApiPublishI18nProfileRe
 		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-Project-Id", r.xProjectId, "simple", "")
 	}
 	// body params
-	localVarPostBody = r.publishI18nProfileRequest
+	localVarPostBody = r.body
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err

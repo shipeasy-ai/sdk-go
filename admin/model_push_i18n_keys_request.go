@@ -22,8 +22,6 @@ var _ MappedNullable = &PushI18nKeysRequest{}
 type PushI18nKeysRequest struct {
 	// Target profile id to add keys to.
 	ProfileId string `json:"profile_id"`
-	// Logical grouping the new keys are filed under. Defaults to `default`.
-	Chunk *string `json:"chunk,omitempty"`
 	// Keys to add. Insert-only — existing keys are reported back as `skipped`.
 	Keys []PushI18nKeysRequestKeysInner `json:"keys"`
 	AdditionalProperties map[string]interface{}
@@ -74,38 +72,6 @@ func (o *PushI18nKeysRequest) SetProfileId(v string) {
 	o.ProfileId = v
 }
 
-// GetChunk returns the Chunk field value if set, zero value otherwise.
-func (o *PushI18nKeysRequest) GetChunk() string {
-	if o == nil || IsNil(o.Chunk) {
-		var ret string
-		return ret
-	}
-	return *o.Chunk
-}
-
-// GetChunkOk returns a tuple with the Chunk field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *PushI18nKeysRequest) GetChunkOk() (*string, bool) {
-	if o == nil || IsNil(o.Chunk) {
-		return nil, false
-	}
-	return o.Chunk, true
-}
-
-// HasChunk returns a boolean if a field has been set.
-func (o *PushI18nKeysRequest) HasChunk() bool {
-	if o != nil && !IsNil(o.Chunk) {
-		return true
-	}
-
-	return false
-}
-
-// SetChunk gets a reference to the given string and assigns it to the Chunk field.
-func (o *PushI18nKeysRequest) SetChunk(v string) {
-	o.Chunk = &v
-}
-
 // GetKeys returns the Keys field value
 func (o *PushI18nKeysRequest) GetKeys() []PushI18nKeysRequestKeysInner {
 	if o == nil {
@@ -141,9 +107,6 @@ func (o PushI18nKeysRequest) MarshalJSON() ([]byte, error) {
 func (o PushI18nKeysRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["profile_id"] = o.ProfileId
-	if !IsNil(o.Chunk) {
-		toSerialize["chunk"] = o.Chunk
-	}
 	toSerialize["keys"] = o.Keys
 
 	for key, value := range o.AdditionalProperties {
@@ -190,7 +153,6 @@ func (o *PushI18nKeysRequest) UnmarshalJSON(data []byte) (err error) {
 
 	if err = json.Unmarshal(data, &additionalProperties); err == nil {
 		delete(additionalProperties, "profile_id")
-		delete(additionalProperties, "chunk")
 		delete(additionalProperties, "keys")
 		o.AdditionalProperties = additionalProperties
 	}

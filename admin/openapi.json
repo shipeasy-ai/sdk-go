@@ -89,11 +89,11 @@
     },
     {
       "name": "i18n",
-      "description": "String Manager (i18n): the worker-safe REST surface \u2014 locale profiles, the\ninsert-only key push, single-key overwrite, chunk publish, and the read-only\nkey/draft listings.\n\nThe fs/AST parts (scan, validate, install-loader, codemod) are NOT part of\nthis API \u2014 they stay in the fs-having CLI/MCP."
+      "description": "String Manager (i18n): the worker-safe REST surface \u2014 locale profiles, the\ninsert-only key push, single-key overwrite, profile publish, and the read-only\nkey/draft listings.\n\nThe fs/AST parts (scan, validate, install-loader, codemod) are NOT part of\nthis API \u2014 they stay in the fs-having CLI/MCP."
     },
     {
       "name": "Profiles",
-      "description": "Locale profiles (e.g. `en:prod`) \u2014 create, list, and publish a profile's chunks to the CDN."
+      "description": "Locale profiles (e.g. `en:prod`) \u2014 create, list, and publish a profile to the CDN."
     },
     {
       "name": "Keys",
@@ -6054,7 +6054,7 @@
       "get": {
         "operationId": "listI18nProfiles",
         "summary": "List i18n profiles",
-        "description": "Returns every locale profile in the project (e.g. `en:prod`, `fr:prod`).\n\n**Use case:** Discover which locale profiles exist before pushing keys or publishing a chunk.",
+        "description": "Returns every locale profile in the project (e.g. `en:prod`, `fr:prod`).\n\n**Use case:** Discover which locale profiles exist before pushing keys or publishing.",
         "tags": [
           "Profiles"
         ],
@@ -6512,7 +6512,7 @@
       "post": {
         "operationId": "publishI18nProfile",
         "summary": "Publish a profile live",
-        "description": "Publish a profile to the CDN \u2014 rebuild its KV snapshot + purge the edge. Publishing is PROFILE-WIDE: the whole profile is snapshotted into one KV blob, so the optional `chunk` in the body is an audit label only (it does not scope what ships).\n\n**Use case:** Ship the latest translations live after pushing/updating keys.",
+        "description": "Publish a profile to the CDN \u2014 rebuild its KV snapshot + purge the edge. Publishing is PROFILE-WIDE: the whole profile is snapshotted into one KV blob, so the body takes no options.\n\n**Use case:** Ship the latest translations live after pushing/updating keys.",
         "tags": [
           "Profiles"
         ],
@@ -6531,21 +6531,18 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/PublishI18nProfileRequest"
-              },
-              "example": {
-                "chunk": "default"
               }
             }
           }
         },
         "responses": {
           "201": {
-            "description": "Publish a profile chunk",
+            "description": "Publish a profile",
             "content": {
               "application/json": {
                 "schema": {
@@ -15026,10 +15023,6 @@
                   "description": "Owning profile id.",
                   "type": "string"
                 },
-                "chunkId": {
-                  "description": "Owning chunk (authoring grouping) id.",
-                  "type": "string"
-                },
                 "updatedAt": {
                   "description": "ISO-8601 timestamp of the last edit.",
                   "type": "string"
@@ -15067,10 +15060,6 @@
           "profile_id": {
             "type": "string",
             "description": "Target profile id to add keys to."
-          },
-          "chunk": {
-            "description": "Logical grouping the new keys are filed under. Defaults to `default`.",
-            "type": "string"
           },
           "keys": {
             "type": "array",
@@ -15126,10 +15115,6 @@
           "skipped_count": {
             "type": "number",
             "description": "Number of keys skipped (== `skipped.length`)."
-          },
-          "chunk": {
-            "description": "The chunk the keys were filed under.",
-            "type": "string"
           }
         },
         "required": [
@@ -15239,14 +15224,9 @@
       },
       "PublishI18nProfileRequest": {
         "type": "object",
-        "properties": {
-          "chunk": {
-            "description": "Optional chunk label to stamp on the audit log. Publishing is profile-wide regardless \u2014 the whole profile is snapshotted into one KV blob.",
-            "type": "string"
-          }
-        },
+        "properties": {},
         "additionalProperties": false,
-        "description": "Body for `POST /api/admin/i18n/profiles/{profileId}/publish`. The `chunk` is an audit label only."
+        "description": "Body for `POST /api/admin/i18n/profiles/{profileId}/publish`. Publishing is profile-wide, so the body takes no options."
       },
       "PublishI18nProfileResponse": {
         "type": "object",
@@ -15259,17 +15239,6 @@
           "profile_id": {
             "type": "string",
             "description": "Profile that was published."
-          },
-          "chunk": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Audit chunk label, or `null` when none was given."
           },
           "published_at": {
             "type": "string",
@@ -15308,7 +15277,6 @@
         "required": [
           "ok",
           "profile_id",
-          "chunk",
           "published_at",
           "version",
           "key_count",

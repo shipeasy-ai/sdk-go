@@ -25,8 +25,6 @@ type PublishI18nProfileResponse struct {
 	Ok bool `json:"ok"`
 	// Profile that was published.
 	ProfileId string `json:"profile_id"`
-	// Audit chunk label, or `null` when none was given.
-	Chunk NullableString `json:"chunk"`
 	// ISO-8601 timestamp of the publish.
 	PublishedAt string `json:"published_at"`
 	// New KV snapshot version that was shipped.
@@ -49,11 +47,10 @@ type _PublishI18nProfileResponse PublishI18nProfileResponse
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewPublishI18nProfileResponse(ok bool, profileId string, chunk NullableString, publishedAt string, version string, keyCount float32, changed bool, purged string, kvVerified bool) *PublishI18nProfileResponse {
+func NewPublishI18nProfileResponse(ok bool, profileId string, publishedAt string, version string, keyCount float32, changed bool, purged string, kvVerified bool) *PublishI18nProfileResponse {
 	this := PublishI18nProfileResponse{}
 	this.Ok = ok
 	this.ProfileId = profileId
-	this.Chunk = chunk
 	this.PublishedAt = publishedAt
 	this.Version = version
 	this.KeyCount = keyCount
@@ -117,32 +114,6 @@ func (o *PublishI18nProfileResponse) GetProfileIdOk() (*string, bool) {
 // SetProfileId sets field value
 func (o *PublishI18nProfileResponse) SetProfileId(v string) {
 	o.ProfileId = v
-}
-
-// GetChunk returns the Chunk field value
-// If the value is explicit nil, the zero value for string will be returned
-func (o *PublishI18nProfileResponse) GetChunk() string {
-	if o == nil || o.Chunk.Get() == nil {
-		var ret string
-		return ret
-	}
-
-	return *o.Chunk.Get()
-}
-
-// GetChunkOk returns a tuple with the Chunk field value
-// and a boolean to check if the value has been set.
-// NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *PublishI18nProfileResponse) GetChunkOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return o.Chunk.Get(), o.Chunk.IsSet()
-}
-
-// SetChunk sets field value
-func (o *PublishI18nProfileResponse) SetChunk(v string) {
-	o.Chunk.Set(&v)
 }
 
 // GetPublishedAt returns the PublishedAt field value
@@ -333,7 +304,6 @@ func (o PublishI18nProfileResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["ok"] = o.Ok
 	toSerialize["profile_id"] = o.ProfileId
-	toSerialize["chunk"] = o.Chunk.Get()
 	toSerialize["published_at"] = o.PublishedAt
 	toSerialize["version"] = o.Version
 	toSerialize["key_count"] = o.KeyCount
@@ -353,7 +323,6 @@ func (o *PublishI18nProfileResponse) UnmarshalJSON(data []byte) (err error) {
 	requiredProperties := []string{
 		"ok",
 		"profile_id",
-		"chunk",
 		"published_at",
 		"version",
 		"key_count",

@@ -32,8 +32,6 @@ type ListI18nKeysResponseKeysInner struct {
 	Variables []string `json:"variables,omitempty"`
 	// Owning profile id.
 	ProfileId *string `json:"profileId,omitempty"`
-	// Owning chunk (authoring grouping) id.
-	ChunkId *string `json:"chunkId,omitempty"`
 	// ISO-8601 timestamp of the last edit.
 	UpdatedAt *string `json:"updatedAt,omitempty"`
 	// Actor email that last edited the key.
@@ -242,38 +240,6 @@ func (o *ListI18nKeysResponseKeysInner) SetProfileId(v string) {
 	o.ProfileId = &v
 }
 
-// GetChunkId returns the ChunkId field value if set, zero value otherwise.
-func (o *ListI18nKeysResponseKeysInner) GetChunkId() string {
-	if o == nil || IsNil(o.ChunkId) {
-		var ret string
-		return ret
-	}
-	return *o.ChunkId
-}
-
-// GetChunkIdOk returns a tuple with the ChunkId field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *ListI18nKeysResponseKeysInner) GetChunkIdOk() (*string, bool) {
-	if o == nil || IsNil(o.ChunkId) {
-		return nil, false
-	}
-	return o.ChunkId, true
-}
-
-// HasChunkId returns a boolean if a field has been set.
-func (o *ListI18nKeysResponseKeysInner) HasChunkId() bool {
-	if o != nil && !IsNil(o.ChunkId) {
-		return true
-	}
-
-	return false
-}
-
-// SetChunkId gets a reference to the given string and assigns it to the ChunkId field.
-func (o *ListI18nKeysResponseKeysInner) SetChunkId(v string) {
-	o.ChunkId = &v
-}
-
 // GetUpdatedAt returns the UpdatedAt field value if set, zero value otherwise.
 func (o *ListI18nKeysResponseKeysInner) GetUpdatedAt() string {
 	if o == nil || IsNil(o.UpdatedAt) {
@@ -360,9 +326,6 @@ func (o ListI18nKeysResponseKeysInner) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.ProfileId) {
 		toSerialize["profileId"] = o.ProfileId
 	}
-	if !IsNil(o.ChunkId) {
-		toSerialize["chunkId"] = o.ChunkId
-	}
 	if !IsNil(o.UpdatedAt) {
 		toSerialize["updatedAt"] = o.UpdatedAt
 	}
@@ -420,7 +383,6 @@ func (o *ListI18nKeysResponseKeysInner) UnmarshalJSON(data []byte) (err error) {
 		delete(additionalProperties, "description")
 		delete(additionalProperties, "variables")
 		delete(additionalProperties, "profileId")
-		delete(additionalProperties, "chunkId")
 		delete(additionalProperties, "updatedAt")
 		delete(additionalProperties, "updatedBy")
 		o.AdditionalProperties = additionalProperties

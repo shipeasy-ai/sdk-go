@@ -29,8 +29,6 @@ type PushI18nKeysResponse struct {
 	PushedCount float32 `json:"pushed_count"`
 	// Number of keys skipped (== `skipped.length`).
 	SkippedCount float32 `json:"skipped_count"`
-	// The chunk the keys were filed under.
-	Chunk *string `json:"chunk,omitempty"`
 }
 
 type _PushI18nKeysResponse PushI18nKeysResponse
@@ -152,38 +150,6 @@ func (o *PushI18nKeysResponse) SetSkippedCount(v float32) {
 	o.SkippedCount = v
 }
 
-// GetChunk returns the Chunk field value if set, zero value otherwise.
-func (o *PushI18nKeysResponse) GetChunk() string {
-	if o == nil || IsNil(o.Chunk) {
-		var ret string
-		return ret
-	}
-	return *o.Chunk
-}
-
-// GetChunkOk returns a tuple with the Chunk field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *PushI18nKeysResponse) GetChunkOk() (*string, bool) {
-	if o == nil || IsNil(o.Chunk) {
-		return nil, false
-	}
-	return o.Chunk, true
-}
-
-// HasChunk returns a boolean if a field has been set.
-func (o *PushI18nKeysResponse) HasChunk() bool {
-	if o != nil && !IsNil(o.Chunk) {
-		return true
-	}
-
-	return false
-}
-
-// SetChunk gets a reference to the given string and assigns it to the Chunk field.
-func (o *PushI18nKeysResponse) SetChunk(v string) {
-	o.Chunk = &v
-}
-
 func (o PushI18nKeysResponse) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
@@ -198,9 +164,6 @@ func (o PushI18nKeysResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize["skipped"] = o.Skipped
 	toSerialize["pushed_count"] = o.PushedCount
 	toSerialize["skipped_count"] = o.SkippedCount
-	if !IsNil(o.Chunk) {
-		toSerialize["chunk"] = o.Chunk
-	}
 	return toSerialize, nil
 }
 
