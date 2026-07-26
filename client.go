@@ -79,6 +79,20 @@ type Engine struct {
 	// A message logged at level L via logf is emitted iff logRank[level] <=
 	// logRank[logLevel]. Set in NewEngine (defaults to "warn" when empty).
 	logLevel string
+
+	// SSR tag defaults from Options. The tag helpers (i18n / bootstrap /
+	// devtools) take every value from here unless the callsite passes one, so a
+	// template calls shipeasy.I18nScriptTag() with no arguments at all.
+	// clientKey is the PUBLIC client key — never the server key, which must not
+	// reach a browser.
+	clientKey  string
+	profile    string
+	projectID  string
+	cdnBaseURL string
+	// warnedTagSettings dedups the "no client key / project id" warning per
+	// (helper, setting): a tag helper runs on every render and one
+	// misconfiguration must not log a line per request. Guarded by exposureMu.
+	warnedTagSettings map[string]struct{}
 }
 
 // Log levels for Options.LogLevel / Engine.logf, ordered
@@ -214,6 +228,17 @@ type Options struct {
 	// network/decode chatter (Track/LogExposure/see()/poll failures) in
 	// production without wrapping the standard logger.
 	LogLevel string
+	// ClientKey is the PUBLIC client key (sdk_client_...) the SSR i18n and
+	// devtools tags carry. It never authenticates a read — it is only what the
+	// browser bundles use. NEVER put the server key here.
+	ClientKey string
+	// Profile is the default i18n profile the SSR tags carry (e.g. "en:prod").
+	Profile string
+	// ProjectID is your Shipeasy project id (proj_...), read by DevtoolsScriptTag.
+	ProjectID string
+	// CDNBaseURL overrides the CDN origin the SSR tags are built against
+	// (defaults to https://cdn.shipeasy.ai).
+	CDNBaseURL string
 }
 
 // NewEngine constructs the heavyweight evaluation engine: it owns the api key,
@@ -273,6 +298,10 @@ func NewEngine(opts Options) *Engine {
 		localMode:         !networkEnabled,
 		seeLimiter:        newSeeLimiter(),
 		logLevel:          resolveLogLevel(opts.LogLevel),
+		clientKey:         opts.ClientKey,
+		profile:           opts.Profile,
+		projectID:         opts.ProjectID,
+		cdnBaseURL:        opts.CDNBaseURL,
 	}
 	// Register this engine as the default backing the package-level see()
 	// funcs (last constructed wins — the server-SDK analog of shipeasy({key})).

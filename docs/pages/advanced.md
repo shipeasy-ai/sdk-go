@@ -33,12 +33,51 @@ run off the global configuration:
 
 ```go
 user := shipeasy.User{"user_id": "u_123"}
-head := shipeasy.BootstrapScriptTag(user, shipeasy.BootstrapTagOptions{AnonID: anonID}) +
-    shipeasy.I18nScriptTag(clientKey, "en:prod", shipeasy.BootstrapTagOptions{})
+head := shipeasy.BootstrapScriptTag(user, shipeasy.TagOptions{AnonID: anonID}) +
+    shipeasy.I18nScriptTag()
 ```
 
-`BootstrapTagOptions` accepts `AnonID`, `I18nProfile`, and `BaseURL` (defaults to
-`https://cdn.shipeasy.ai`).
+### Every argument is optional
+
+The tag helpers take **variadic** `TagOptions`: pass none and every value comes
+from `Configure`, or pass one to override a field for that tag.
+
+| Helper | Signature | Defaults from `Options` |
+| --- | --- | --- |
+| `shipeasy.I18nScriptTag` | `(opts ...TagOptions)` | `ClientKey`, `Profile`, `CDNBaseURL` |
+| `shipeasy.BootstrapScriptTag` | `(user User, opts ...TagOptions)` | `nil` user ⇒ anonymous; `Profile`, `CDNBaseURL` |
+| `shipeasy.DevtoolsScriptTag` | `(opts ...TagOptions)` | `ProjectID`, `ClientKey`, `CDNBaseURL` |
+
+```go
+shipeasy.Configure(shipeasy.Options{
+    APIKey:    os.Getenv("SHIPEASY_SERVER_KEY"),
+    ClientKey: os.Getenv("SHIPEASY_CLIENT_KEY"), // PUBLIC key, for the tags
+    ProjectID: os.Getenv("SHIPEASY_PROJECT_ID"), // for the devtools tag
+    Profile:   "en:prod",
+})
+```
+
+`TagOptions` fields: `AnonID`, `I18nProfile`, `ClientKey`, `ProjectID`,
+`BaseURL`, `NoDefer` (`BootstrapTagOptions` is kept as an alias). A tag still
+renders when a value is missing — the browser bundle reports what it needs — but
+the SDK logs a warning naming the `Options` field to fill in, once per field
+rather than once per render.
+
+### Devtools overlay tag
+
+`shipeasy.DevtoolsScriptTag()` emits the hosted devtools overlay bundle —
+nothing to install, no overlay code in your binary or bundle. It reads the
+project id and public client key off the tag and opens with **Shift+Alt+S** or on
+any page loaded with `?se=1`. It is `defer`red unless you set
+`TagOptions{NoDefer: true}`: a developer tool never belongs on the critical
+rendering path.
+
+```go
+// Render it for your own team only.
+if user.IsStaff {
+    head += shipeasy.DevtoolsScriptTag()
+}
+```
 
 ### Identity coherence — no anon→identified flip
 

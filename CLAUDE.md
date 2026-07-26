@@ -22,7 +22,7 @@ Users are taught exactly **two** things, and the docs must never drift from them
 
 Plus the package-level helpers that let users avoid the heavyweight object:
 `OverrideFlag` / `OverrideConfig` / `OverrideExperiment` / `ClearOverrides`,
-`OnChange`, `BootstrapScriptTag` / `I18nScriptTag`, the global-form
+`OnChange`, `BootstrapScriptTag` / `I18nScriptTag` / `DevtoolsScriptTag`, the global-form
 `openfeature.NewGlobalProvider()`, and the `See()` family.
 
 **The `Engine` type is an internal detail. Do NOT document it.** It stays public

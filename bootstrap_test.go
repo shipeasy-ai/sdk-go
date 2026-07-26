@@ -125,7 +125,7 @@ func TestBootstrapScriptTagNoUserWhenAnonymous(t *testing.T) {
 
 func TestI18nScriptTag(t *testing.T) {
 	c := seedClient()
-	tag := c.I18nScriptTag("client_pub", "fr:prod", BootstrapTagOptions{})
+	tag := c.I18nScriptTag(TagOptions{ClientKey: "client_pub", I18nProfile: "fr:prod"})
 	for _, want := range []string{
 		`src="https://cdn.shipeasy.ai/sdk/i18n/loader.js"`,
 		`data-key="client_pub"`,
@@ -134,5 +134,83 @@ func TestI18nScriptTag(t *testing.T) {
 		if !strings.Contains(tag, want) {
 			t.Fatalf("i18n tag missing %q\n%s", want, tag)
 		}
+	}
+}
+
+// --- every argument is optional: the tags read what Configure was given ------
+
+// configuredClient is a local engine carrying the SSR tag defaults Configure
+// would have set, so the helpers can be called with no options at all.
+func configuredClient() *Engine {
+	c := seedClient()
+	c.clientKey = "sdk_client_cfg"
+	c.projectID = "proj_cfg"
+	c.profile = "fr:prod"
+	c.cdnBaseURL = "https://cdn.example.test"
+	return c
+}
+
+func TestTagsDefaultFromConfigure(t *testing.T) {
+	c := configuredClient()
+	for _, tc := range []struct {
+		name, tag string
+		want      []string
+	}{
+		{"i18n", c.I18nScriptTag(), []string{
+			`src="https://cdn.example.test/sdk/i18n/loader.js"`,
+			`data-key="sdk_client_cfg"`,
+			`data-profile="fr:prod"`,
+		}},
+		{"bootstrap", c.BootstrapScriptTag(nil), []string{
+			`src="https://cdn.example.test/sdk/bootstrap.js"`,
+			`data-i18n-profile="fr:prod"`,
+		}},
+		{"devtools", c.DevtoolsScriptTag(), []string{
+			`src="https://cdn.example.test/se-devtools.js"`,
+			`data-project-id="proj_cfg"`,
+			`data-client-api-key="sdk_client_cfg"`,
+			`defer`,
+		}},
+	} {
+		for _, want := range tc.want {
+			if !strings.Contains(tc.tag, want) {
+				t.Fatalf("%s tag missing %q\n%s", tc.name, want, tc.tag)
+			}
+		}
+	}
+	// A nil user is an anonymous request — no identity on the tag.
+	if strings.Contains(c.BootstrapScriptTag(nil), "data-user") {
+		t.Fatalf("nil user must not emit data-user")
+	}
+}
+
+func TestExplicitTagOptionsWin(t *testing.T) {
+	c := configuredClient()
+	i18n := c.I18nScriptTag(TagOptions{ClientKey: "other_key", I18nProfile: "de:prod"})
+	if !strings.Contains(i18n, `data-key="other_key"`) || !strings.Contains(i18n, `data-profile="de:prod"`) {
+		t.Fatalf("explicit i18n options ignored: %s", i18n)
+	}
+	boot := c.BootstrapScriptTag(User{"user_id": "u1"}, TagOptions{I18nProfile: "de:prod"})
+	if !strings.Contains(boot, `data-i18n-profile="de:prod"`) {
+		t.Fatalf("explicit bootstrap profile ignored: %s", boot)
+	}
+	dev := c.DevtoolsScriptTag(TagOptions{ProjectID: "proj_other", ClientKey: "other_key", NoDefer: true})
+	if !strings.Contains(dev, `data-project-id="proj_other"`) || !strings.Contains(dev, `data-client-api-key="other_key"`) {
+		t.Fatalf("explicit devtools options ignored: %s", dev)
+	}
+	if strings.Contains(dev, "defer") {
+		t.Fatalf("NoDefer must drop the defer attribute: %s", dev)
+	}
+}
+
+func TestDevtoolsTagRendersWhenUnconfigured(t *testing.T) {
+	// A missing project id / client key renders anyway (the browser bundle
+	// reports what it needs) — a tag helper must never break a template.
+	tag := seedClient().DevtoolsScriptTag()
+	if !strings.Contains(tag, `src="https://cdn.shipeasy.ai/se-devtools.js"`) {
+		t.Fatalf("devtools tag did not render: %s", tag)
+	}
+	if !strings.Contains(tag, `data-project-id=""`) {
+		t.Fatalf("devtools tag should carry an empty project id: %s", tag)
 	}
 }

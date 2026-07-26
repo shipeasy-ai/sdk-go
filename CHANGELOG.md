@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.19.0 — 2026-07-26
+
+### Feat!: the SSR tag helpers take every argument from `Configure`, plus a devtools tag
+
+- **Every tag helper is now callable with no arguments.** They take variadic
+  `TagOptions`, and each unset field falls back to what `Configure` was given:
+
+  ```go
+  head := shipeasy.BootstrapScriptTag(user) + shipeasy.I18nScriptTag()
+  ```
+
+- **New `Options` fields feeding those defaults:** `ClientKey` (the PUBLIC client
+  key), `Profile`, `ProjectID`, `CDNBaseURL`.
+- **New `shipeasy.DevtoolsScriptTag`** emits the hosted devtools overlay bundle
+  (`se-devtools.js`) with `data-project-id` + `data-client-api-key`, `defer` by
+  default (drop it with `TagOptions{NoDefer: true}`). The overlay opens with
+  **Shift+Alt+S** or on any page loaded with `?se=1`.
+- **`BootstrapTagOptions` is now `TagOptions`** — the old name is kept as a type
+  alias, and it gained `ClientKey`, `ProjectID` and `NoDefer` fields.
+- **BREAKING (source-level):** `I18nScriptTag(clientKey, profile string, opts
+  BootstrapTagOptions)` became `I18nScriptTag(opts ...TagOptions)`. Migrate
+  `I18nScriptTag(k, p, BootstrapTagOptions{})` →
+  `I18nScriptTag(TagOptions{ClientKey: k, I18nProfile: p})`, or set `ClientKey`
+  and `Profile` on `Options` and call `I18nScriptTag()`. `BootstrapScriptTag`'s
+  options argument became variadic, so existing call sites keep compiling (and a
+  `nil` user is now an anonymous request).
+- A tag built with a missing key / project id still renders, and the SDK logs a
+  warning naming the `Options` field to fill in — once per field, not once per
+  render. Mirrors the Ruby SDK 3.7.0, Python 0.21.0 and PHP 0.20.0.
+
 ## 0.18.0 — 2026-07-19
 
 ### Feat: carry the server-identified user on the SSR bootstrap tag as `data-user`

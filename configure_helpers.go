@@ -152,12 +152,25 @@ func OnChange(fn func()) (cancel func()) { return requireGlobal("OnChange").OnCh
 
 // BootstrapScriptTag returns the SSR bootstrap <script> tag for a request (no key
 // embedded), delegating to the configured global engine — call Configure first.
-func BootstrapScriptTag(user User, opts BootstrapTagOptions) string {
-	return requireGlobal("BootstrapScriptTag").BootstrapScriptTag(user, opts)
+// Every argument is optional: a nil user renders an anonymous request, and each
+// unset TagOptions field falls back to what Configure was given.
+func BootstrapScriptTag(user User, opts ...TagOptions) string {
+	return requireGlobal("BootstrapScriptTag").BootstrapScriptTag(user, opts...)
 }
 
 // I18nScriptTag returns the i18n loader <script> tag (public client key) for SSR,
-// delegating to the configured global engine — call Configure first.
-func I18nScriptTag(clientKey, profile string, opts BootstrapTagOptions) string {
-	return requireGlobal("I18nScriptTag").I18nScriptTag(clientKey, profile, opts)
+// delegating to the configured global engine — call Configure first. Every
+// argument is optional: with no options the tag carries the ClientKey, Profile
+// and CDNBaseURL passed to Configure.
+func I18nScriptTag(opts ...TagOptions) string {
+	return requireGlobal("I18nScriptTag").I18nScriptTag(opts...)
+}
+
+// DevtoolsScriptTag returns the devtools overlay <script> tag (hosted
+// se-devtools.js; opens with Shift+Alt+S or ?se=1), delegating to the configured
+// global engine — call Configure first. Every argument is optional: with no
+// options the tag carries the ProjectID, ClientKey and CDNBaseURL passed to
+// Configure.
+func DevtoolsScriptTag(opts ...TagOptions) string {
+	return requireGlobal("DevtoolsScriptTag").DevtoolsScriptTag(opts...)
 }

@@ -62,6 +62,10 @@ Every field is optional except `APIKey`.
 | `PrivateAttributes` | `[]string` | — | Event-property keys stripped from every outbound `/collect` payload (`Track`, exposure, `See` extras). |
 | `StickyStore` | `StickyBucketStore` | `nil` | Lock in experiment assignments per bucketing unit. See [Advanced](advanced.md). |
 | `LogLevel` | `string` | `"warn"` | SDK log verbosity: `silent`, `error`, `warn`, `info`, `debug`. Gates the `[shipeasy] ` background-failure logs. See [Configuration](configuration.md#fail-safe-reads--the-loglevel-option). |
+| `ClientKey` | `string` | — | **Public** client key (`sdk_client_…`) — the default the SSR i18n / devtools tags carry. Never the server key. See [Advanced](advanced.md#ssr-bootstrap). |
+| `Profile` | `string` | `"en:prod"` | Default i18n profile the SSR tags carry. See [i18n](i18n.md). |
+| `ProjectID` | `string` | — | Your project id (`proj_…`) — read by `DevtoolsScriptTag`. See [Advanced](advanced.md#devtools-overlay-tag). |
+| `CDNBaseURL` | `string` | `https://cdn.shipeasy.ai` | CDN origin the SSR tags are built against. |
 
 The full init/poll vs one-shot semantics and change listeners live on the
 [Configuration](configuration.md) page.

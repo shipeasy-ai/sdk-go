@@ -159,8 +159,11 @@ Reference: <https://shipeasy-ai.github.io/sdk-go/pages/openfeature.md>
 
 ## i18n
 
-Server-side only: emit `shipeasy.I18nScriptTag(clientKey, "en:prod", opts)` in the
-page `<head>` (public client key). The browser client SDK's `t()` renders the
+Server-side only: emit `shipeasy.I18nScriptTag()` in the page `<head>` — every
+argument is optional (the public client key, profile and CDN origin come from
+`Configure`); pass one `shipeasy.TagOptions` to override a single tag. Same for
+`shipeasy.BootstrapScriptTag(user)` and `shipeasy.DevtoolsScriptTag()` (devtools
+overlay: Shift+Alt+S or `?se=1`). The browser client SDK's `t()` renders the
 labels. There is no server-side `t()` in Go. Reference:
 <https://shipeasy-ai.github.io/sdk-go/pages/i18n.md>
 

@@ -17,10 +17,10 @@ const defaultCDNBase = "https://cdn.shipeasy.ai"
 // into per-gate evaluation (a killed gate reads false in Flags), so the
 // standalone Killswitches map is empty for this SDK.
 type Bootstrap struct {
-	Flags        map[string]bool             `json:"flags"`
-	Configs      map[string]any              `json:"configs"`
-	Experiments  map[string]BootstrapExp     `json:"experiments"`
-	Killswitches map[string]any              `json:"killswitches"`
+	Flags        map[string]bool         `json:"flags"`
+	Configs      map[string]any          `json:"configs"`
+	Experiments  map[string]BootstrapExp `json:"experiments"`
+	Killswitches map[string]any          `json:"killswitches"`
 	// Universes carries per-universe param defaults so the browser can resolve
 	// universe(name).get(field) to a default even when the unit is not enrolled
 	// anywhere in the universe. Only universes referenced by a loaded experiment
@@ -44,17 +44,42 @@ type BootstrapUniverse struct {
 	Defaults map[string]any `json:"defaults"`
 }
 
-// BootstrapTagOptions tunes the emitted <script> tags.
-type BootstrapTagOptions struct {
+// TagOptions tunes the emitted <script> tags. EVERY field is optional: an unset
+// field falls back to the matching Options value passed to Configure, so a
+// template can call the tag helpers with no options at all.
+type TagOptions struct {
 	// AnonID is the stable anonymous bucketing id the server evaluated against.
 	// Emitted as data-anon-id; se-bootstrap.js writes it to the __se_anon_id
 	// cookie and window.__SE_BOOTSTRAP so the browser buckets identically to SSR.
+	// Bootstrap tag only.
 	AnonID string
-	// I18nProfile recorded on the tag (defaults to "en:prod").
+	// I18nProfile recorded on the tag (defaults to Options.Profile, else
+	// "en:prod"). Read by the i18n and bootstrap tags.
 	I18nProfile string
+	// ClientKey is the PUBLIC client key put on the i18n / devtools tags
+	// (defaults to Options.ClientKey). NEVER the server key.
+	ClientKey string
+	// ProjectID for the devtools tag (defaults to Options.ProjectID).
+	ProjectID string
 	// BaseURL overrides the CDN base for the tag src + data-api-url
-	// (defaults to https://cdn.shipeasy.ai).
+	// (defaults to Options.CDNBaseURL, else https://cdn.shipeasy.ai).
 	BaseURL string
+	// NoDefer drops the `defer` attribute from the devtools tag. The overlay is
+	// deferred by default — a developer tool is never needed for first paint.
+	NoDefer bool
+}
+
+// BootstrapTagOptions is the former name of TagOptions, kept as an alias so
+// existing call sites keep compiling.
+type BootstrapTagOptions = TagOptions
+
+// firstTagOptions collapses the variadic options every tag helper takes: callers
+// pass zero options (everything from Configure) or exactly one.
+func firstTagOptions(opts []TagOptions) TagOptions {
+	if len(opts) == 0 {
+		return TagOptions{}
+	}
+	return opts[0]
 }
 
 // Evaluate builds the bootstrap payload for a user by evaluating every loaded
@@ -142,13 +167,13 @@ func (c *Engine) Evaluate(user User) Bootstrap {
 // request: se-bootstrap.js reads its data-* attributes and hydrates
 // window.__SE_BOOTSTRAP (and writes the anon cookie). No SDK key is embedded —
 // the server key must never reach the browser.
-func (c *Engine) BootstrapScriptTag(user User, opts BootstrapTagOptions) string {
+// Every argument is OPTIONAL: a nil user renders an anonymous request, and each
+// unset TagOptions field falls back to what Configure was given.
+func (c *Engine) BootstrapScriptTag(user User, opts ...TagOptions) string {
+	o := firstTagOptions(opts)
 	b := c.Evaluate(user)
-	base := cdnBase(opts.BaseURL)
-	profile := opts.I18nProfile
-	if profile == "" {
-		profile = "en:prod"
-	}
+	base := c.cdnBaseFor(o.BaseURL)
+	profile := c.profileFor(o.I18nProfile)
 	attrs := []string{
 		"data-se-bootstrap",
 		attr("data-flags", jsonStr(b.Flags)),
@@ -158,8 +183,8 @@ func (c *Engine) BootstrapScriptTag(user User, opts BootstrapTagOptions) string 
 		attr("data-i18n-profile", profile),
 		attr("data-api-url", base),
 	}
-	if opts.AnonID != "" {
-		attrs = append(attrs, attr("data-anon-id", opts.AnonID))
+	if o.AnonID != "" {
+		attrs = append(attrs, attr("data-anon-id", o.AnonID))
 	}
 	// Carry the server-identified user so the browser SDK adopts the same
 	// identity on first paint (no anon→identified flip). anonymous_id is
@@ -174,13 +199,94 @@ func (c *Engine) BootstrapScriptTag(user User, opts BootstrapTagOptions) string 
 // I18nScriptTag returns the i18n loader <script> tag. The loader fetches and
 // installs translations for the profile using the PUBLIC client key (safe to
 // embed in HTML). Pair it with BootstrapScriptTag in your document head.
-func (c *Engine) I18nScriptTag(clientKey, profile string, opts BootstrapTagOptions) string {
-	base := cdnBase(opts.BaseURL)
-	if profile == "" {
-		profile = "en:prod"
-	}
+//
+// Every argument is OPTIONAL: with no options the tag carries the ClientKey,
+// Profile and CDNBaseURL passed to Configure.
+func (c *Engine) I18nScriptTag(opts ...TagOptions) string {
+	o := firstTagOptions(opts)
+	base := c.cdnBaseFor(o.BaseURL)
+	key := c.clientKeyFor(o.ClientKey)
+	c.warnMissingTagSetting("I18nScriptTag", "ClientKey", key)
 	return `<script src="` + html.EscapeString(base+"/sdk/i18n/loader.js") + `" ` +
-		attr("data-key", clientKey) + ` ` + attr("data-profile", profile) + `></script>`
+		attr("data-key", key) + ` ` + attr("data-profile", c.profileFor(o.I18nProfile)) + `></script>`
+}
+
+// DevtoolsScriptTag returns the devtools overlay <script> tag. se-devtools.js is
+// a hosted, self-executing bundle — nothing to install — that reads the project
+// and the PUBLIC client key off the tag. The overlay opens with Shift+Alt+S or
+// on any page loaded with ?se=1.
+//
+// Every argument is OPTIONAL: with no options the tag carries the ProjectID,
+// ClientKey and CDNBaseURL passed to Configure. The tag is deferred unless
+// TagOptions.NoDefer is set — a developer tool never belongs on the critical
+// rendering path.
+func (c *Engine) DevtoolsScriptTag(opts ...TagOptions) string {
+	o := firstTagOptions(opts)
+	base := c.cdnBaseFor(o.BaseURL)
+	pid := o.ProjectID
+	if pid == "" {
+		pid = c.projectID
+	}
+	key := c.clientKeyFor(o.ClientKey)
+	c.warnMissingTagSetting("DevtoolsScriptTag", "ProjectID", pid)
+	c.warnMissingTagSetting("DevtoolsScriptTag", "ClientKey", key)
+	attrs := attr("data-project-id", pid) + ` ` + attr("data-client-api-key", key)
+	if !o.NoDefer {
+		attrs += ` defer`
+	}
+	return `<script src="` + html.EscapeString(base+"/se-devtools.js") + `" ` +
+		attrs + `></script>`
+}
+
+// cdnBaseFor resolves the CDN origin for a tag: the per-call override, else the
+// configured CDNBaseURL, else the platform default.
+func (c *Engine) cdnBaseFor(override string) string {
+	if override == "" {
+		override = c.cdnBaseURL
+	}
+	return cdnBase(override)
+}
+
+// profileFor resolves the i18n profile a tag carries: the per-call override,
+// else the configured Profile, else the platform default.
+func (c *Engine) profileFor(override string) string {
+	if override != "" {
+		return override
+	}
+	if c.profile != "" {
+		return c.profile
+	}
+	return "en:prod"
+}
+
+// clientKeyFor resolves the PUBLIC client key a tag carries.
+func (c *Engine) clientKeyFor(override string) string {
+	if override != "" {
+		return override
+	}
+	return c.clientKey
+}
+
+// warnMissingTagSetting logs once per (helper, setting) when a tag is built
+// without a key/id. It is not an error — the tag renders, and the browser bundle
+// reports what it needs — but it is never what the caller wanted, and a helper
+// that runs on every render must not log a line per request.
+func (c *Engine) warnMissingTagSetting(fnName, setting, value string) {
+	if value != "" {
+		return
+	}
+	seen := fnName + "." + setting
+	c.exposureMu.Lock()
+	if c.warnedTagSettings == nil {
+		c.warnedTagSettings = map[string]struct{}{}
+	}
+	if _, done := c.warnedTagSettings[seen]; done {
+		c.exposureMu.Unlock()
+		return
+	}
+	c.warnedTagSettings[seen] = struct{}{}
+	c.exposureMu.Unlock()
+	c.logf(LogLevelWarn, "%s: no %s — pass it in TagOptions, or set Options.%s in Configure; the tag will render without it", fnName, setting, setting)
 }
 
 func cdnBase(override string) string {
