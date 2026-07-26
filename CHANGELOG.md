@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.20.0 — 2026-07-26
+
+### The SSR bootstrap tag loads `/sdk/runtime.js`
+
+`bootstrapScriptTag` now points at `/sdk/runtime.js` instead of the retired
+`/sdk/bootstrap.js`, and emits both marker attributes (`data-se-bootstrap` for
+the npm client SDK, `data-se-boot` for the runtime). The `data-*` payload is
+unchanged, so this is a drop-in — but the emitted markup differs, so snapshot
+tests asserting the old `src` need updating.
+
+`bootstrap.js` did two things beyond relaying attributes: minting the
+`__se_anon_id` cookie and publishing `window.__SE_BOOTSTRAP`. The runtime now
+does both, and additionally installs a working `window.shipeasy` from the SSR
+payload — so an SSR page gets the vanilla-JS API for free, with one request
+fewer than before.
+
+**`/sdk/bootstrap.js` no longer exists.** Pages served by an older version of
+this SDK will 404 on that tag and lose the anon cookie, so upgrade before the
+next deploy.
+
 ## 0.19.0 — 2026-07-26
 
 ### Feat!: the SSR tag helpers take every argument from `Configure`, plus a devtools tag

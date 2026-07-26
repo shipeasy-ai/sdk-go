@@ -7,13 +7,13 @@ import (
 )
 
 // defaultCDNBase is the CDN origin that serves the static loader scripts
-// (/sdk/bootstrap.js, /sdk/i18n/loader.js). Distinct from defaultBaseURL, which
+// (/sdk/runtime.js, /sdk/i18n/loader.js). Distinct from defaultBaseURL, which
 // is the edge API the client fetches flag/experiment blobs from.
 const defaultCDNBase = "https://cdn.shipeasy.ai"
 
 // Bootstrap is the SSR-evaluated payload for one request: every loaded gate,
 // config and experiment evaluated for the user, ready to ride the
-// se-bootstrap.js <script> tag's data-* attributes. Killswitches are folded
+// SSR bootstrap <script> tag's data-* attributes. Killswitches are folded
 // into per-gate evaluation (a killed gate reads false in Flags), so the
 // standalone Killswitches map is empty for this SDK.
 type Bootstrap struct {
@@ -49,7 +49,7 @@ type BootstrapUniverse struct {
 // template can call the tag helpers with no options at all.
 type TagOptions struct {
 	// AnonID is the stable anonymous bucketing id the server evaluated against.
-	// Emitted as data-anon-id; se-bootstrap.js writes it to the __se_anon_id
+	// Emitted as data-anon-id; the runtime writes it to the __se_anon_id
 	// cookie and window.__SE_BOOTSTRAP so the browser buckets identically to SSR.
 	// Bootstrap tag only.
 	AnonID string
@@ -164,9 +164,14 @@ func (c *Engine) Evaluate(user User) Bootstrap {
 }
 
 // BootstrapScriptTag returns the cross-platform SSR bootstrap <script> tag for a
-// request: se-bootstrap.js reads its data-* attributes and hydrates
-// window.__SE_BOOTSTRAP (and writes the anon cookie). No SDK key is embedded —
-// the server key must never reach the browser.
+// request: /sdk/runtime.js reads its data-* attributes, installs
+// window.shipeasy, republishes window.__SE_BOOTSTRAP for the npm client SDK and
+// writes the anon cookie. No SDK key is embedded — the server key must never
+// reach the browser.
+//
+// This used to point at /sdk/bootstrap.js, which did nothing the runtime does
+// not; both marker attributes are emitted so the npm client SDK still finds the
+// tag by data-se-bootstrap while the runtime finds itself by data-se-boot.
 // Every argument is OPTIONAL: a nil user renders an anonymous request, and each
 // unset TagOptions field falls back to what Configure was given.
 func (c *Engine) BootstrapScriptTag(user User, opts ...TagOptions) string {
@@ -176,6 +181,7 @@ func (c *Engine) BootstrapScriptTag(user User, opts ...TagOptions) string {
 	profile := c.profileFor(o.I18nProfile)
 	attrs := []string{
 		"data-se-bootstrap",
+		"data-se-boot",
 		attr("data-flags", jsonStr(b.Flags)),
 		attr("data-configs", jsonStr(b.Configs)),
 		attr("data-experiments", jsonStr(b.Experiments)),
@@ -192,7 +198,7 @@ func (c *Engine) BootstrapScriptTag(user User, opts ...TagOptions) string {
 	if du, ok := identityAttrs(user); ok {
 		attrs = append(attrs, attr("data-user", du))
 	}
-	return `<script src="` + html.EscapeString(base+"/sdk/bootstrap.js") + `" ` +
+	return `<script src="` + html.EscapeString(base+"/sdk/runtime.js") + `" ` +
 		strings.Join(attrs, " ") + `></script>`
 }
 

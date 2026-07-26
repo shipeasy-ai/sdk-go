@@ -45,7 +45,7 @@ func TestBootstrapScriptTagAttrs(t *testing.T) {
 	tag := c.BootstrapScriptTag(User{"user_id": "u1"}, BootstrapTagOptions{AnonID: "anon-1"})
 
 	for _, want := range []string{
-		`src="https://cdn.shipeasy.ai/sdk/bootstrap.js"`,
+		`src="https://cdn.shipeasy.ai/sdk/runtime.js"`,
 		"data-se-bootstrap",
 		"data-flags=",
 		"data-configs=",
@@ -162,7 +162,7 @@ func TestTagsDefaultFromConfigure(t *testing.T) {
 			`data-profile="fr:prod"`,
 		}},
 		{"bootstrap", c.BootstrapScriptTag(nil), []string{
-			`src="https://cdn.example.test/sdk/bootstrap.js"`,
+			`src="https://cdn.example.test/sdk/runtime.js"`,
 			`data-i18n-profile="fr:prod"`,
 		}},
 		{"devtools", c.DevtoolsScriptTag(), []string{
