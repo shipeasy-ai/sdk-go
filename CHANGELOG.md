@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.21.0 — 2026-07-27
 
 ### BREAKING: the optional Admin API client is now seven purpose-built operations
 
@@ -50,6 +50,17 @@ generated enum constants are named after the value alone, so `ready_for_qa` and
 `pending_approval` — present in both `OpsItemStatus` and `OpsInvestigationState`
 — collided at package scope and the module did not compile. Constants are now
 `OpsItemStatusREADY_FOR_QA` and friends.
+
+### Docs: where `See()` extras go in the chain
+
+`CausesThe(subject)` and `.To(outcome)` are two halves of one sentence, so the
+docs no longer teach `CausesThe(x).Extras(m).To(y)` — wedging the debug payload
+between the subject and the outcome splits the consequence in half and is hard
+to read. That shape is now a documented hard ban.
+
+`.To` returns nothing, so extras cannot trail the terminal in Go: pass them
+inline as `.To(outcome, extras)`. Docs, snippet and the embedded skill updated
+to match.
 
 ## 0.20.0 — 2026-07-26
 
