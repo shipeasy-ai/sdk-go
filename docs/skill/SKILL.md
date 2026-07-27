@@ -105,13 +105,11 @@ c := shipeasy.NewClient(shipeasy.User{"anonymous_id": shipeasy.AnonID(r)})
 
 ```go
 if err := chargeCard(o); err != nil {
+    // .To(...) is the terminal — sends the report; extras fold in inline.
+    // NEVER .CausesThe(x).Extras(m).To(y) — it splits the consequence sentence.
     shipeasy.See(err).CausesThe("checkout").
-        Extras(map[string]any{"order_id": o.ID}).
-        To("use the backup processor")   // .To(...) is the terminal — sends the report
+        To("use the backup processor", map[string]any{"order_id": o.ID})
 }
-// Or pass extras inline (merged like a final .Extras — no ordering to remember):
-shipeasy.See(err).CausesThe("checkout").
-    To("use the backup processor", map[string]any{"order_id": o.ID})
 // Expected control flow reports NOTHING:
 shipeasy.ControlFlowException(err).Because("because empty-state path")
 ```

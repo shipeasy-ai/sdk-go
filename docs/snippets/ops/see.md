@@ -14,29 +14,28 @@ if err := charge(order); err != nil {
 }
 ```
 
-### Attach context with `.Extras(...)`
+### Attach context inline on `.To(outcome, extras)`
 
 ```go
 if err := charge(order); err != nil {
-    // Extras(map) — structured fields attached to the report (sanitized:
-    // string/number/bool only; private attributes stripped before egress).
-    shipeasy.See(err).
-        CausesThe("checkout").
-        Extras(map[string]any{"order_id": order.ID}).
-        To("use cached prices")
-}
-```
-
-### Or pass extras inline to `.To(outcome, extras)`
-
-```go
-if err := charge(order); err != nil {
-    // .To(outcome, extras) — the extras map is merged like a final .Extras()
-    // call (later map wins), so there is no ordering to remember.
+    // .To(outcome, extras) — PREFERRED. The extras map is merged like a final
+    // .Extras() call (later map wins). Structured fields are sanitized
+    // (string/number/bool only; private attributes stripped before egress).
+    // The consequence sentence stays whole and there is no ordering to remember.
     shipeasy.See(err).
         CausesThe("checkout").
         To("use cached prices", map[string]any{"order_id": order.ID})
 }
+```
+
+`.To` returns nothing, so extras cannot trail the terminal in Go — the inline
+form above is how you attach them. And never wedge `.Extras(...)` between
+`.CausesThe` and `.To`: it splits the consequence sentence in half and is hard
+to read.
+
+```go
+// NEVER — the subject and the outcome must stay adjacent:
+// shipeasy.See(err).CausesThe("checkout").Extras(m).To("use cached prices")
 ```
 
 ### Report a non-exception violation
