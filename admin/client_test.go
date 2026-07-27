@@ -34,12 +34,10 @@ func TestWithBaseURLOverrides(t *testing.T) {
 
 func TestResourceGroupsReachable(t *testing.T) {
 	c := NewClient("k")
-	if c.FlagsAPI == nil || c.ExperimentsAPI == nil || c.ConfigsAPI == nil ||
-		c.KillswitchAPI == nil || c.UniversesAPI == nil || c.MetricsAPI == nil ||
-		c.EventsAPI == nil || c.AlertsAPI == nil || c.AttributesAPI == nil ||
-		c.ProjectsAPI == nil || c.OpsAPI == nil || c.ConnectorsAPI == nil ||
-		c.ErrorsAPI == nil || c.KeysAPI == nil || c.DraftsAPI == nil ||
-		c.ProfilesAPI == nil || c.APIKeysAPI == nil {
+	// The four groups of the pruned admin surface. Deliberately exhaustive: if a
+	// keep-set change adds or drops a group, this list must move with it.
+	if c.FlagsAPI == nil || c.KillswitchAPI == nil ||
+		c.OpsAPI == nil || c.CommentsAPI == nil {
 		t.Fatal("one or more resource-group services is nil")
 	}
 }

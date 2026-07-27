@@ -48,11 +48,18 @@ echo "Generating the admin Go client from $SPEC ..."
 # --skip-validate-spec: the leniently-parsed 3.2-labelled spec trips the strict
 # validator (spurious "unexpected"/"missing" errors); the codegen model builder
 # handles the 3.1-expressible surface correctly, so skip validation.
+#
+# enumClassPrefix=true is REQUIRED, not cosmetic. The Go generator otherwise
+# emits enum constants named only after the VALUE, so two enums that share a
+# value collide at package scope and the module does not compile. `ready_for_qa`
+# and `pending_approval` appear in both OpsItemStatus and OpsInvestigationState,
+# which is exactly that case. The prefix makes them OpsItemStatusREADY_FOR_QA /
+# OpsInvestigationStateREADY_FOR_QA.
 npx --yes @openapitools/openapi-generator-cli generate \
   -i "$SPEC" \
   -g go \
   --skip-validate-spec \
-  --additional-properties=packageName=admin,isGoSubmodule=false,withGoMod=true,gitHost=github.com,gitUserId=shipeasy-ai,gitRepoId=sdk-go/admin \
+  --additional-properties=packageName=admin,isGoSubmodule=false,withGoMod=true,gitHost=github.com,gitUserId=shipeasy-ai,gitRepoId=sdk-go/admin,enumClassPrefix=true \
   -o "$BUILD" >/dev/null
 
 if ! ls "$BUILD"/*.go >/dev/null 2>&1; then

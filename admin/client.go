@@ -13,11 +13,14 @@
 package admin
 
 // Client is a configured Admin API client. It embeds the generated *APIClient,
-// so the resource groups are reached directly: client.FlagsAPI, client.ConfigsAPI,
-// client.KillswitchAPI, client.ExperimentsAPI, client.UniversesAPI,
-// client.MetricsAPI, client.EventsAPI, client.AlertsAPI, client.AttributesAPI,
-// client.OpsAPI, client.ProjectsAPI, client.ConnectorsAPI, client.ErrorsAPI,
-// client.KeysAPI, client.DraftsAPI, client.ProfilesAPI, client.APIKeysAPI.
+// so the resource groups are reached directly: client.FlagsAPI,
+// client.KillswitchAPI, client.OpsAPI, client.CommentsAPI.
+//
+// Those four are the whole surface: the vendored spec is pruned to the public
+// ops ticket API, the killswitch nested-switch writes, and gate whitelist
+// management (keep-set.json in the monorepo). The rest of the admin API
+// (experiments, metrics, events, configs, i18n, projects, …) is deliberately
+// absent — reach it through the Shipeasy CLI or MCP, which use the full spec.
 type Client struct {
 	*APIClient
 }

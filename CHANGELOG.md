@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+### BREAKING: the optional Admin API client is now a lean, three-group surface
+
+`admin/openapi.json` is no longer a copy of the full Shipeasy admin spec. It is
+a pruned subset — 13 of 127 operations, 56 of 256 schemas — generated in the
+monorepo by `scripts/sdk-spec/prune.mjs` from `scripts/sdk-spec/keep-set.json`.
+The vendored spec drops from ~912 KB to ~192 KB and the generated client shrinks
+by roughly two thirds.
+
+The client now exposes **four** resource groups instead of seventeen:
+`FlagsAPI`, `KillswitchAPI`, `OpsAPI`, `CommentsAPI`.
+
+Everything else — experiments, metrics, events, configs, universes, attributes,
+i18n (keys/drafts/profiles), errors, alerts, connectors, projects, api keys —
+was removed. Those operations remain fully available through the Shipeasy CLI
+and MCP, which consume the complete spec. The base SDK (flag/config/experiment
+evaluation, `track`, `see()`) is **unaffected**: it never used the admin client.
+
+The kept groups are the public ops ticket surface (file / list / read / update a
+bug or feature request, plus its comment thread), the kill-switch nested
+sub-switch writes, and gate whitelist management.
+
+A monorepo pre-commit hook now blocks any commit that changes the admin spec
+while this vendored copy is stale, so the two can no longer silently drift — the
+condition that had let the vendored spec fall 41 operations behind.
+
+
+Go only: the admin generator now sets `enumClassPrefix=true`. Without it the
+generated enum constants are named after the value alone, so `ready_for_qa` and
+`pending_approval` — present in both `OpsItemStatus` and `OpsInvestigationState`
+— collided at package scope and the module did not compile. Constants are now
+`OpsItemStatusREADY_FOR_QA` and friends.
+
 ## 0.20.0 — 2026-07-26
 
 ### The SSR bootstrap tag loads `/sdk/runtime.js`
