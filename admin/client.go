@@ -14,11 +14,12 @@ package admin
 
 // Client is a configured Admin API client. It embeds the generated *APIClient,
 // so the resource groups are reached directly: client.FlagsAPI,
-// client.KillswitchAPI, client.OpsAPI, client.CommentsAPI.
+// client.KillswitchAPI, client.OpsAPI.
 //
-// Those four are the whole surface: the vendored spec is pruned to the public
-// ops ticket API, the killswitch nested-switch writes, and gate whitelist
-// management (keep-set.json in the monorepo). The rest of the admin API
+// Those three are the whole surface: the vendored spec is the dedicated
+// server-SDK contract (marketplace/openapi/spec/openapi-sdk.yaml in the
+// monorepo), seven operations across three capabilities — file a public ticket,
+// toggle a kill switch, manage a flag's whitelist. The rest of the admin API
 // (experiments, metrics, events, configs, i18n, projects, …) is deliberately
 // absent — reach it through the Shipeasy CLI or MCP, which use the full spec.
 type Client struct {
@@ -47,6 +48,23 @@ func WithBaseURL(url string) Option {
 	}
 }
 
+// WithClientKey supplies a CLIENT SDK key (sdk_client_…) for the two public
+// ticket operations — OpsAPI.CreatePublicBug and CreatePublicFeatureRequest.
+// Those live on the Shipeasy edge worker and authenticate with X-SDK-Key rather
+// than the admin bearer token, and the generated client already routes them to
+// the edge host. The key must carry the `tickets:public_create` scope.
+//
+// Sent as a default header rather than threaded through a request context: the
+// generated operations only read ContextAPIKeys when it is present, so a
+// default header is the simpler equivalent and needs no ctx plumbing.
+func WithClientKey(clientKey string) Option {
+	return func(c *Configuration) {
+		if clientKey != "" {
+			c.AddDefaultHeader("X-SDK-Key", clientKey)
+		}
+	}
+}
+
 // WithConfiguration applies an arbitrary tweak to the generated Configuration
 // (custom HTTP client, extra default headers, …) for advanced use.
 func WithConfiguration(fn func(*Configuration)) Option { return Option(fn) }
@@ -57,7 +75,7 @@ func WithConfiguration(fn func(*Configuration)) Option { return Option(fn) }
 //
 //	client := admin.NewClient(os.Getenv("SHIPEASY_ADMIN_KEY"),
 //	    admin.WithProjectID(os.Getenv("SHIPEASY_PROJECT_ID")))
-//	flags, _, err := client.FlagsAPI.ListGates(context.Background()).Execute()
+//	wl, _, err := client.FlagsAPI.GetGateWhitelist(context.Background(), "new_checkout").Execute()
 func NewClient(apiKey string, opts ...Option) *Client {
 	cfg := NewConfiguration()
 	cfg.AddDefaultHeader("Authorization", "Bearer "+apiKey)

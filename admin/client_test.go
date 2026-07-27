@@ -1,6 +1,9 @@
 package admin
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // These tests only construct the client (no network) and assert the auth/scoping
 // wiring + that the generated resource groups are reachable. Because admin/ is a
@@ -34,10 +37,36 @@ func TestWithBaseURLOverrides(t *testing.T) {
 
 func TestResourceGroupsReachable(t *testing.T) {
 	c := NewClient("k")
-	// The four groups of the pruned admin surface. Deliberately exhaustive: if a
-	// keep-set change adds or drops a group, this list must move with it.
-	if c.FlagsAPI == nil || c.KillswitchAPI == nil ||
-		c.OpsAPI == nil || c.CommentsAPI == nil {
+	// The three groups of the lean admin surface. Deliberately exhaustive: if a
+	// change to the SDK spec adds or drops a group, this list must move with it.
+	if c.FlagsAPI == nil || c.KillswitchAPI == nil || c.OpsAPI == nil {
 		t.Fatal("one or more resource-group services is nil")
 	}
+}
+
+func TestWithClientKeySetsTheIntakeHeader(t *testing.T) {
+	// The two public ticket ops authenticate with a CLIENT key (X-SDK-Key) on
+	// the edge worker, not the admin bearer.
+	c := NewClient("k", WithClientKey("sdk_client_test"))
+	if got := c.GetConfig().DefaultHeader["X-SDK-Key"]; got != "sdk_client_test" {
+		t.Fatalf("X-SDK-Key = %q, want the client key", got)
+	}
+	if got := NewClient("k").GetConfig().DefaultHeader["X-SDK-Key"]; got != "" {
+		t.Fatalf("X-SDK-Key = %q, want unset without WithClientKey", got)
+	}
+}
+
+// The seven operations the SDK contract carries. These are compile-time
+// references, so dropping or renaming one in the spec breaks the build here
+// rather than silently shrinking the published client.
+func TestContractOperationsExist(t *testing.T) {
+	c := NewClient("k")
+	ctx := context.Background()
+	_ = c.OpsAPI.CreatePublicBug(ctx)
+	_ = c.OpsAPI.CreatePublicFeatureRequest(ctx)
+	_ = c.KillswitchAPI.ToggleKillswitch(ctx, "payments.checkout")
+	_ = c.FlagsAPI.GetGateWhitelist(ctx, "new_checkout")
+	_ = c.FlagsAPI.SetGateWhitelist(ctx, "new_checkout")
+	_ = c.FlagsAPI.AddToGateWhitelist(ctx, "new_checkout")
+	_ = c.FlagsAPI.RemoveFromGateWhitelist(ctx, "new_checkout")
 }

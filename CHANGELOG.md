@@ -2,26 +2,43 @@
 
 ## Unreleased
 
-### BREAKING: the optional Admin API client is now a lean, three-group surface
+### BREAKING: the optional Admin API client is now seven purpose-built operations
 
 `admin/openapi.json` is no longer a copy of the full Shipeasy admin spec. It is
-a pruned subset — 13 of 127 operations, 56 of 256 schemas — generated in the
-monorepo by `scripts/sdk-spec/prune.mjs` from `scripts/sdk-spec/keep-set.json`.
-The vendored spec drops from ~912 KB to ~192 KB and the generated client shrinks
-by roughly two thirds.
+the dedicated **server-SDK contract** — 7 of 127 operations, 18 of 256 schemas —
+hand-authored in the monorepo as `marketplace/openapi/spec/openapi-sdk.yaml` and
+bundled to `openapi-sdk.json`. The vendored spec drops from ~912 KB to ~59 KB and
+the generated client shrinks accordingly.
 
-The client now exposes **four** resource groups instead of seventeen:
-`FlagsAPI`, `KillswitchAPI`, `OpsAPI`, `CommentsAPI`.
+The client now exposes **three** resource groups instead of seventeen:
+`FlagsAPI`, `KillswitchAPI`, `OpsAPI`. Between them they carry three capabilities:
 
-Everything else — experiments, metrics, events, configs, universes, attributes,
-i18n (keys/drafts/profiles), errors, alerts, connectors, projects, api keys —
-was removed. Those operations remain fully available through the Shipeasy CLI
-and MCP, which consume the complete spec. The base SDK (flag/config/experiment
-evaluation, `track`, `see()`) is **unaffected**: it never used the admin client.
+- **File a public ticket** — `CreatePublicBug`, `CreatePublicFeatureRequest`
+- **Toggle a kill switch** — `ToggleKillswitch`
+- **Manage a flag's whitelist** — `GetGateWhitelist`, `SetGateWhitelist`, `AddToGateWhitelist`,
+  `RemoveFromGateWhitelist`
 
-The kept groups are the public ops ticket surface (file / list / read / update a
-bug or feature request, plus its comment thread), the kill-switch nested
-sub-switch writes, and gate whitelist management.
+These are new, purpose-built endpoints, not the generic CRUD routes with a
+narrower keep-set. Filing a bug no longer means setting a `type` discriminator on
+a union body; flipping a kill switch no longer means reading it first and PUTting
+the value back; managing a whitelist no longer means GETting a gate, splicing its
+gatekeeper `stack`, and PATCHing the whole thing (a lost-update waiting to
+happen). Each is one call.
+
+Everything else — listing, generic CRUD, experiments, metrics, events, configs,
+universes, attributes, i18n (keys/drafts/profiles), errors, alerts, connectors,
+projects, api keys, ops comments — was removed. Those operations remain fully
+available through the Shipeasy CLI and MCP, which consume the complete spec. The
+base SDK (flag/config/experiment evaluation, `track`, `see()`) is **unaffected**:
+it never used the admin client.
+
+The two public ticket operations are **not** admin-API calls. They are served by
+the Shipeasy edge worker (`api.shipeasy.ai`) and authenticate with a **client**
+SDK key carrying the `tickets:public_create` scope — the credential a CLI, an
+installer, or a browser bundle can safely embed. Items are filed as
+`pending_approval` and dedupe by title against the open ticket already tracking
+them. The generated client routes those two to the edge host on its own; supply
+the client key with `admin.WithClientKey(...)` and it is sent as `X-SDK-Key`.
 
 A monorepo pre-commit hook now blocks any commit that changes the admin spec
 while this vendored copy is stale, so the two can no longer silently drift — the

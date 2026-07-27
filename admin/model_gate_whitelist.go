@@ -16,38 +16,45 @@ import (
 	"fmt"
 )
 
-// checks if the NotificationTargetSlackChannel type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &NotificationTargetSlackChannel{}
+// checks if the GateWhitelist type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &GateWhitelist{}
 
-// NotificationTargetSlackChannel struct for NotificationTargetSlackChannel
-type NotificationTargetSlackChannel struct {
+// GateWhitelist A gate's whitelist — the always-first allowlist that admits the listed identities before any targeting rule or rollout runs. Backed by the pinned `whitelist` entry at the head of the gate's `stack`, so it is the same list the dashboard's Whitelist block edits.
+type GateWhitelist struct {
+	// Resolved gate id.
 	Id string `json:"id"`
+	// The gate's stable `name`.
 	Name string `json:"name"`
+	Attr GateWhitelistAttr `json:"attr"`
+	// The whitelisted identities, in the order they are stored. Deduplicated case-sensitively; an empty array means the gate has no whitelist.
+	Entries []string `json:"entries"`
 }
 
-type _NotificationTargetSlackChannel NotificationTargetSlackChannel
+type _GateWhitelist GateWhitelist
 
-// NewNotificationTargetSlackChannel instantiates a new NotificationTargetSlackChannel object
+// NewGateWhitelist instantiates a new GateWhitelist object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewNotificationTargetSlackChannel(id string, name string) *NotificationTargetSlackChannel {
-	this := NotificationTargetSlackChannel{}
+func NewGateWhitelist(id string, name string, attr GateWhitelistAttr, entries []string) *GateWhitelist {
+	this := GateWhitelist{}
 	this.Id = id
 	this.Name = name
+	this.Attr = attr
+	this.Entries = entries
 	return &this
 }
 
-// NewNotificationTargetSlackChannelWithDefaults instantiates a new NotificationTargetSlackChannel object
+// NewGateWhitelistWithDefaults instantiates a new GateWhitelist object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewNotificationTargetSlackChannelWithDefaults() *NotificationTargetSlackChannel {
-	this := NotificationTargetSlackChannel{}
+func NewGateWhitelistWithDefaults() *GateWhitelist {
+	this := GateWhitelist{}
 	return &this
 }
 
 // GetId returns the Id field value
-func (o *NotificationTargetSlackChannel) GetId() string {
+func (o *GateWhitelist) GetId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -58,7 +65,7 @@ func (o *NotificationTargetSlackChannel) GetId() string {
 
 // GetIdOk returns a tuple with the Id field value
 // and a boolean to check if the value has been set.
-func (o *NotificationTargetSlackChannel) GetIdOk() (*string, bool) {
+func (o *GateWhitelist) GetIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -66,12 +73,12 @@ func (o *NotificationTargetSlackChannel) GetIdOk() (*string, bool) {
 }
 
 // SetId sets field value
-func (o *NotificationTargetSlackChannel) SetId(v string) {
+func (o *GateWhitelist) SetId(v string) {
 	o.Id = v
 }
 
 // GetName returns the Name field value
-func (o *NotificationTargetSlackChannel) GetName() string {
+func (o *GateWhitelist) GetName() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -82,7 +89,7 @@ func (o *NotificationTargetSlackChannel) GetName() string {
 
 // GetNameOk returns a tuple with the Name field value
 // and a boolean to check if the value has been set.
-func (o *NotificationTargetSlackChannel) GetNameOk() (*string, bool) {
+func (o *GateWhitelist) GetNameOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -90,11 +97,59 @@ func (o *NotificationTargetSlackChannel) GetNameOk() (*string, bool) {
 }
 
 // SetName sets field value
-func (o *NotificationTargetSlackChannel) SetName(v string) {
+func (o *GateWhitelist) SetName(v string) {
 	o.Name = v
 }
 
-func (o NotificationTargetSlackChannel) MarshalJSON() ([]byte, error) {
+// GetAttr returns the Attr field value
+func (o *GateWhitelist) GetAttr() GateWhitelistAttr {
+	if o == nil {
+		var ret GateWhitelistAttr
+		return ret
+	}
+
+	return o.Attr
+}
+
+// GetAttrOk returns a tuple with the Attr field value
+// and a boolean to check if the value has been set.
+func (o *GateWhitelist) GetAttrOk() (*GateWhitelistAttr, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return &o.Attr, true
+}
+
+// SetAttr sets field value
+func (o *GateWhitelist) SetAttr(v GateWhitelistAttr) {
+	o.Attr = v
+}
+
+// GetEntries returns the Entries field value
+func (o *GateWhitelist) GetEntries() []string {
+	if o == nil {
+		var ret []string
+		return ret
+	}
+
+	return o.Entries
+}
+
+// GetEntriesOk returns a tuple with the Entries field value
+// and a boolean to check if the value has been set.
+func (o *GateWhitelist) GetEntriesOk() ([]string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.Entries, true
+}
+
+// SetEntries sets field value
+func (o *GateWhitelist) SetEntries(v []string) {
+	o.Entries = v
+}
+
+func (o GateWhitelist) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -102,20 +157,24 @@ func (o NotificationTargetSlackChannel) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o NotificationTargetSlackChannel) ToMap() (map[string]interface{}, error) {
+func (o GateWhitelist) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["id"] = o.Id
 	toSerialize["name"] = o.Name
+	toSerialize["attr"] = o.Attr
+	toSerialize["entries"] = o.Entries
 	return toSerialize, nil
 }
 
-func (o *NotificationTargetSlackChannel) UnmarshalJSON(data []byte) (err error) {
+func (o *GateWhitelist) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"id",
 		"name",
+		"attr",
+		"entries",
 	}
 
 	allProperties := make(map[string]interface{})
@@ -132,53 +191,53 @@ func (o *NotificationTargetSlackChannel) UnmarshalJSON(data []byte) (err error) 
 		}
 	}
 
-	varNotificationTargetSlackChannel := _NotificationTargetSlackChannel{}
+	varGateWhitelist := _GateWhitelist{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varNotificationTargetSlackChannel)
+	err = decoder.Decode(&varGateWhitelist)
 
 	if err != nil {
 		return err
 	}
 
-	*o = NotificationTargetSlackChannel(varNotificationTargetSlackChannel)
+	*o = GateWhitelist(varGateWhitelist)
 
 	return err
 }
 
-type NullableNotificationTargetSlackChannel struct {
-	value *NotificationTargetSlackChannel
+type NullableGateWhitelist struct {
+	value *GateWhitelist
 	isSet bool
 }
 
-func (v NullableNotificationTargetSlackChannel) Get() *NotificationTargetSlackChannel {
+func (v NullableGateWhitelist) Get() *GateWhitelist {
 	return v.value
 }
 
-func (v *NullableNotificationTargetSlackChannel) Set(val *NotificationTargetSlackChannel) {
+func (v *NullableGateWhitelist) Set(val *GateWhitelist) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableNotificationTargetSlackChannel) IsSet() bool {
+func (v NullableGateWhitelist) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableNotificationTargetSlackChannel) Unset() {
+func (v *NullableGateWhitelist) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableNotificationTargetSlackChannel(val *NotificationTargetSlackChannel) *NullableNotificationTargetSlackChannel {
-	return &NullableNotificationTargetSlackChannel{value: val, isSet: true}
+func NewNullableGateWhitelist(val *GateWhitelist) *NullableGateWhitelist {
+	return &NullableGateWhitelist{value: val, isSet: true}
 }
 
-func (v NullableNotificationTargetSlackChannel) MarshalJSON() ([]byte, error) {
+func (v NullableGateWhitelist) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableNotificationTargetSlackChannel) UnmarshalJSON(src []byte) error {
+func (v *NullableGateWhitelist) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
