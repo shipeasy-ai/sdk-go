@@ -73,7 +73,16 @@ any page loaded with `?se=1`. It is `defer`red unless you set
 rendering path.
 
 ```go
-// Render it for your own team only.
+head += shipeasy.DevtoolsScriptTag()
+```
+
+Adding it unconditionally is fine: the overlay only opens for someone with a
+signed-in Shipeasy session, so on a page where nobody has authenticated it
+renders nothing and says nothing. Gating it on your own staff or environment
+check is **optional** — worth it only if you'd rather the bundle not load for
+end users at all:
+
+```go
 if user.IsStaff {
     head += shipeasy.DevtoolsScriptTag()
 }

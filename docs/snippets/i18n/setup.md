@@ -9,7 +9,8 @@ The Go SDK is server-side: it emits the browser i18n loader tag (public client k
 //                  BaseURL, NoDefer — pass one to override a single tag
 tag := shipeasy.I18nScriptTag()
 
-// Devtools overlay (Shift+Alt+S or ?se=1) — render it for your own team only.
+// Devtools overlay (Shift+Alt+S or ?se=1) — opens only for a signed-in
+// Shipeasy session, so gating it on staff/env is optional.
 devtools := shipeasy.DevtoolsScriptTag()
 _, _ = tag, devtools
 ```
