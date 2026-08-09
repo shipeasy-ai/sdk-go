@@ -23,7 +23,7 @@ The cookie is non-`HttpOnly` by design (the browser SDK reads it). A request wit
 **no** unit still resolves a fully-rolled (100%) gate as on; only fractional
 gates need the id. Lower-level helpers: `MintAnonID`, `ReadOrMintAnonID`,
 `SetAnonIDCookie`. The cookie name/format is a cross-SDK contract
-([18-identity-bucketing.md](https://github.com/shipeasy-ai/experiment-platform/blob/main/18-identity-bucketing.md)).
+([Identity & bucketing](https://docs.shipeasy.ai/get-started/identity-and-bucketing)).
 
 ## SSR bootstrap
 
@@ -97,7 +97,7 @@ When the `user` you evaluate is identified (any attribute other than
 client buckets as the **same** user the server did — no anonymous→identified
 flip after hydration. An anonymous request (only `anonymous_id`, or an empty
 user) emits **no** `data-user`, so no PII rides the tag. See
-[18-identity-bucketing.md](https://github.com/shipeasy-ai/experiment-platform/blob/main/18-identity-bucketing.md).
+[Identity & bucketing](https://docs.shipeasy.ai/get-started/identity-and-bucketing).
 
 ## Exposure logging
 
