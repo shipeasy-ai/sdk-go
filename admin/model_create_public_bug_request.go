@@ -19,7 +19,7 @@ import (
 // checks if the CreatePublicBugRequest type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &CreatePublicBugRequest{}
 
-// CreatePublicBugRequest Body for `POST /ops/bug`. The same bug fields as `CreateBugRequest`, minus the `type` discriminator — the path already says what is being filed.
+// CreatePublicBugRequest Body for `POST /ops/bug`. The same bug fields as `CreateBugRequest`, minus the `type` discriminator — the path already says what is being filed, plus the public intake's own `dedupKey`.
 type CreatePublicBugRequest struct {
 	// One-line bug title (no leading/trailing whitespace).
 	Title string `json:"title" validate:"regexp=^\\\\S(.*\\\\S)?$"`
@@ -49,6 +49,8 @@ type CreatePublicBugRequest struct {
 	Viewport NullableString `json:"viewport,omitempty"`
 	// Arbitrary capture context, or `null`.
 	Context map[string]interface{} `json:"context,omitempty"`
+	// Caller-chosen dedupe identity for this report, stored on the ticket. A repeat submission carrying the same key does NOT file a second ticket: the open ticket already holding that key is refreshed from this payload (title and the report fields overwritten, a \"re-triggered\" comment appended) and returned with `deduped: true` and `updated: true`. Triage state a human owns — status, priority, assignee, tags — is left untouched, and a `resolved`/`wont_fix` ticket no longer holds the key, so a failure that comes back after being closed files a fresh ticket. Omit it to fall back to the derived (title + `context.step`) dedupe, whose repeats return the existing ticket unchanged.
+	DedupKey *string `json:"dedupKey,omitempty"`
 	// Where this bug's completion notification lands.
 	Notify NullableNotificationTarget `json:"notify,omitempty"`
 }
@@ -586,6 +588,38 @@ func (o *CreatePublicBugRequest) SetContext(v map[string]interface{}) {
 	o.Context = v
 }
 
+// GetDedupKey returns the DedupKey field value if set, zero value otherwise.
+func (o *CreatePublicBugRequest) GetDedupKey() string {
+	if o == nil || IsNil(o.DedupKey) {
+		var ret string
+		return ret
+	}
+	return *o.DedupKey
+}
+
+// GetDedupKeyOk returns a tuple with the DedupKey field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *CreatePublicBugRequest) GetDedupKeyOk() (*string, bool) {
+	if o == nil || IsNil(o.DedupKey) {
+		return nil, false
+	}
+	return o.DedupKey, true
+}
+
+// HasDedupKey returns a boolean if a field has been set.
+func (o *CreatePublicBugRequest) HasDedupKey() bool {
+	if o != nil && !IsNil(o.DedupKey) {
+		return true
+	}
+
+	return false
+}
+
+// SetDedupKey gets a reference to the given string and assigns it to the DedupKey field.
+func (o *CreatePublicBugRequest) SetDedupKey(v string) {
+	o.DedupKey = &v
+}
+
 // GetNotify returns the Notify field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *CreatePublicBugRequest) GetNotify() NotificationTarget {
 	if o == nil || IsNil(o.Notify.Get()) {
@@ -677,6 +711,9 @@ func (o CreatePublicBugRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if o.Context != nil {
 		toSerialize["context"] = o.Context
+	}
+	if !IsNil(o.DedupKey) {
+		toSerialize["dedupKey"] = o.DedupKey
 	}
 	if o.Notify.IsSet() {
 		toSerialize["notify"] = o.Notify.Get()

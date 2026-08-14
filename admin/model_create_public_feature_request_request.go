@@ -19,7 +19,7 @@ import (
 // checks if the CreatePublicFeatureRequestRequest type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &CreatePublicFeatureRequestRequest{}
 
-// CreatePublicFeatureRequestRequest Body for `POST /ops/feature-request`. The same feature-request fields as `CreateFeatureRequestRequest`, minus the `type` discriminator — the path already says what is being filed.
+// CreatePublicFeatureRequestRequest Body for `POST /ops/feature-request`. The same feature-request fields as `CreateFeatureRequestRequest`, minus the `type` discriminator — the path already says what is being filed, plus the public intake's own `dedupKey`.
 type CreatePublicFeatureRequestRequest struct {
 	// One-line feature-request title (no leading/trailing whitespace).
 	Title string `json:"title" validate:"regexp=^\\\\S(.*\\\\S)?$"`
@@ -45,6 +45,8 @@ type CreatePublicFeatureRequestRequest struct {
 	UserAgent NullableString `json:"userAgent,omitempty"`
 	// Arbitrary capture context, or `null`.
 	Context map[string]interface{} `json:"context,omitempty"`
+	// Caller-chosen dedupe identity for this request, stored on the ticket. Behaves exactly as on `POST /ops/bug`: a repeat carrying the same key refreshes the open ticket already holding it (fields overwritten, a \"re-triggered\" comment appended) and returns `deduped: true` with `updated: true`, instead of filing a second one.
+	DedupKey *string `json:"dedupKey,omitempty"`
 	// Where this request's completion notification lands.
 	Notify NullableNotificationTarget `json:"notify,omitempty"`
 }
@@ -504,6 +506,38 @@ func (o *CreatePublicFeatureRequestRequest) SetContext(v map[string]interface{})
 	o.Context = v
 }
 
+// GetDedupKey returns the DedupKey field value if set, zero value otherwise.
+func (o *CreatePublicFeatureRequestRequest) GetDedupKey() string {
+	if o == nil || IsNil(o.DedupKey) {
+		var ret string
+		return ret
+	}
+	return *o.DedupKey
+}
+
+// GetDedupKeyOk returns a tuple with the DedupKey field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *CreatePublicFeatureRequestRequest) GetDedupKeyOk() (*string, bool) {
+	if o == nil || IsNil(o.DedupKey) {
+		return nil, false
+	}
+	return o.DedupKey, true
+}
+
+// HasDedupKey returns a boolean if a field has been set.
+func (o *CreatePublicFeatureRequestRequest) HasDedupKey() bool {
+	if o != nil && !IsNil(o.DedupKey) {
+		return true
+	}
+
+	return false
+}
+
+// SetDedupKey gets a reference to the given string and assigns it to the DedupKey field.
+func (o *CreatePublicFeatureRequestRequest) SetDedupKey(v string) {
+	o.DedupKey = &v
+}
+
 // GetNotify returns the Notify field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *CreatePublicFeatureRequestRequest) GetNotify() NotificationTarget {
 	if o == nil || IsNil(o.Notify.Get()) {
@@ -589,6 +623,9 @@ func (o CreatePublicFeatureRequestRequest) ToMap() (map[string]interface{}, erro
 	}
 	if o.Context != nil {
 		toSerialize["context"] = o.Context
+	}
+	if !IsNil(o.DedupKey) {
+		toSerialize["dedupKey"] = o.DedupKey
 	}
 	if o.Notify.IsSet() {
 		toSerialize["notify"] = o.Notify.Get()

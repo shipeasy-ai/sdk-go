@@ -19,7 +19,7 @@ import (
 // checks if the CreatePublicTicketResponse type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &CreatePublicTicketResponse{}
 
-// CreatePublicTicketResponse Response for the public ticket intake. A fresh file returns `201` with `id` + `number`; a repeat of a report already tracked by an open ticket returns `200` with that ticket's `number` and `deduped: true`.
+// CreatePublicTicketResponse Response for the public ticket intake. A fresh file returns `201` with `id` + `number`; a repeat of a report already tracked by an open ticket returns `200` with that ticket's `number` and `deduped: true` — plus `updated: true` when a `dedupKey` re-triggered it and its fields were refreshed.
 type CreatePublicTicketResponse struct {
 	// The new item's id. Absent on a deduped response — nothing was created, so there is no new id to report.
 	Id *string `json:"id,omitempty"`
@@ -27,6 +27,8 @@ type CreatePublicTicketResponse struct {
 	Number int32 `json:"number"`
 	// `true` when an open ticket already tracked this report and nothing was filed (HTTP 200). Absent on a fresh file (HTTP 201).
 	Deduped *bool `json:"deduped,omitempty"`
+	// `true` when the deduped ticket was REFRESHED from this payload and got a \"re-triggered\" comment — only ever set alongside `deduped` on a submission that carried a `dedupKey`. Absent when the existing ticket was returned untouched.
+	Updated *bool `json:"updated,omitempty"`
 }
 
 type _CreatePublicTicketResponse CreatePublicTicketResponse
@@ -137,6 +139,38 @@ func (o *CreatePublicTicketResponse) SetDeduped(v bool) {
 	o.Deduped = &v
 }
 
+// GetUpdated returns the Updated field value if set, zero value otherwise.
+func (o *CreatePublicTicketResponse) GetUpdated() bool {
+	if o == nil || IsNil(o.Updated) {
+		var ret bool
+		return ret
+	}
+	return *o.Updated
+}
+
+// GetUpdatedOk returns a tuple with the Updated field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *CreatePublicTicketResponse) GetUpdatedOk() (*bool, bool) {
+	if o == nil || IsNil(o.Updated) {
+		return nil, false
+	}
+	return o.Updated, true
+}
+
+// HasUpdated returns a boolean if a field has been set.
+func (o *CreatePublicTicketResponse) HasUpdated() bool {
+	if o != nil && !IsNil(o.Updated) {
+		return true
+	}
+
+	return false
+}
+
+// SetUpdated gets a reference to the given bool and assigns it to the Updated field.
+func (o *CreatePublicTicketResponse) SetUpdated(v bool) {
+	o.Updated = &v
+}
+
 func (o CreatePublicTicketResponse) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
@@ -153,6 +187,9 @@ func (o CreatePublicTicketResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize["number"] = o.Number
 	if !IsNil(o.Deduped) {
 		toSerialize["deduped"] = o.Deduped
+	}
+	if !IsNil(o.Updated) {
+		toSerialize["updated"] = o.Updated
 	}
 	return toSerialize, nil
 }

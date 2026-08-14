@@ -50,6 +50,8 @@ Three gates decide whether a ticket is filed, and nothing else the caller sends 
 
 The project is the key's own project; there is no `X-Project-Id` to pass and no way to file into someone else's queue. Repeat submissions of the same title dedupe against the open ticket already tracking it, which returns `200` with `deduped: true` instead of filing again.
 
+Send a `dedupKey` to own that grain yourself — the same key from a monitor, a job, or a retried install re-triggers its open ticket: the ticket's fields are refreshed from the new payload and a "re-triggered" comment is appended (`200` with `deduped: true, updated: true`), so one recurring failure stays one ticket with its history intact.
+
 This endpoint is served by the Shipeasy **edge worker** (`api.shipeasy.ai`), not the admin API — see `servers` below.
 
 **Use case:** `shipeasy setup` fails on a customer's machine and self-reports the failure with the user's consent — `{ "title": "Setup failed at Feature installs", "stepsToReproduce": "…", "actualResult": "…" }`.
@@ -243,7 +245,7 @@ CreatePublicFeatureRequest File a feature request
 
 Files one feature request onto a project's queue, awaiting human approval. The feature-request counterpart to `POST /ops/bug`, with the same three gates: a `client` key carrying `tickets:public_create`, a project that has opted in, and a `pending_approval` state forced server-side.
 
-The project is the key's own project; there is no `X-Project-Id` to pass. Repeat submissions of the same title dedupe against the open ticket already tracking it, which returns `200` with `deduped: true` instead of filing again.
+The project is the key's own project; there is no `X-Project-Id` to pass. Repeat submissions of the same title dedupe against the open ticket already tracking it, which returns `200` with `deduped: true` instead of filing again. A `dedupKey` works exactly as on `POST /ops/bug`: a repeat carrying the same key refreshes the open ticket and comments that it was re-triggered.
 
 This endpoint is served by the Shipeasy **edge worker** (`api.shipeasy.ai`), not the admin API — see `servers` below.
 

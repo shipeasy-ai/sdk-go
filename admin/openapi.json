@@ -47,7 +47,7 @@
       "post": {
         "operationId": "createPublicBug",
         "summary": "File a bug",
-        "description": "Files one bug onto a project's queue, awaiting human approval. This is the **public** intake: it authenticates with a *client* SDK key rather than an admin key, so it can be called from a CLI, an installer script, a devtools overlay, or any shipped code — the same places a client key already lives.\n\nThree gates decide whether a ticket is filed, and nothing else the caller sends can widen them:\n\n1. the key is a `client` key carrying the `tickets:public_create` scope,\n2. the key's project has public ticket creation enabled, and\n3. the item is filed as `pending_approval` — parked out of the work queue until a human promotes it in the dashboard.\n\nThe project is the key's own project; there is no `X-Project-Id` to pass and no way to file into someone else's queue. Repeat submissions of the same title dedupe against the open ticket already tracking it, which returns `200` with `deduped: true` instead of filing again.\n\nThis endpoint is served by the Shipeasy **edge worker** (`api.shipeasy.ai`), not the admin API — see `servers` below.\n\n**Use case:** `shipeasy setup` fails on a customer's machine and self-reports the failure with the user's consent — `{ \"title\": \"Setup failed at Feature installs\", \"stepsToReproduce\": \"…\", \"actualResult\": \"…\" }`.",
+        "description": "Files one bug onto a project's queue, awaiting human approval. This is the **public** intake: it authenticates with a *client* SDK key rather than an admin key, so it can be called from a CLI, an installer script, a devtools overlay, or any shipped code — the same places a client key already lives.\n\nThree gates decide whether a ticket is filed, and nothing else the caller sends can widen them:\n\n1. the key is a `client` key carrying the `tickets:public_create` scope,\n2. the key's project has public ticket creation enabled, and\n3. the item is filed as `pending_approval` — parked out of the work queue until a human promotes it in the dashboard.\n\nThe project is the key's own project; there is no `X-Project-Id` to pass and no way to file into someone else's queue. Repeat submissions of the same title dedupe against the open ticket already tracking it, which returns `200` with `deduped: true` instead of filing again.\n\nSend a `dedupKey` to own that grain yourself — the same key from a monitor, a job, or a retried install re-triggers its open ticket: the ticket's fields are refreshed from the new payload and a \"re-triggered\" comment is appended (`200` with `deduped: true, updated: true`), so one recurring failure stays one ticket with its history intact.\n\nThis endpoint is served by the Shipeasy **edge worker** (`api.shipeasy.ai`), not the admin API — see `servers` below.\n\n**Use case:** `shipeasy setup` fails on a customer's machine and self-reports the failure with the user's consent — `{ \"title\": \"Setup failed at Feature installs\", \"stepsToReproduce\": \"…\", \"actualResult\": \"…\" }`.",
         "tags": [
           "Ops"
         ],
@@ -160,7 +160,7 @@
       "post": {
         "operationId": "createPublicFeatureRequest",
         "summary": "File a feature request",
-        "description": "Files one feature request onto a project's queue, awaiting human approval. The feature-request counterpart to `POST /ops/bug`, with the same three gates: a `client` key carrying `tickets:public_create`, a project that has opted in, and a `pending_approval` state forced server-side.\n\nThe project is the key's own project; there is no `X-Project-Id` to pass. Repeat submissions of the same title dedupe against the open ticket already tracking it, which returns `200` with `deduped: true` instead of filing again.\n\nThis endpoint is served by the Shipeasy **edge worker** (`api.shipeasy.ai`), not the admin API — see `servers` below.\n\n**Use case:** An in-product \"request a feature\" form posts what the user asked for — `{ \"title\": \"Dark mode\", \"useCase\": \"Reduce eye strain at night\" }`.",
+        "description": "Files one feature request onto a project's queue, awaiting human approval. The feature-request counterpart to `POST /ops/bug`, with the same three gates: a `client` key carrying `tickets:public_create`, a project that has opted in, and a `pending_approval` state forced server-side.\n\nThe project is the key's own project; there is no `X-Project-Id` to pass. Repeat submissions of the same title dedupe against the open ticket already tracking it, which returns `200` with `deduped: true` instead of filing again. A `dedupKey` works exactly as on `POST /ops/bug`: a repeat carrying the same key refreshes the open ticket and comments that it was re-triggered.\n\nThis endpoint is served by the Shipeasy **edge worker** (`api.shipeasy.ai`), not the admin API — see `servers` below.\n\n**Use case:** An in-product \"request a feature\" form posts what the user asked for — `{ \"title\": \"Dark mode\", \"useCase\": \"Reduce eye strain at night\" }`.",
         "tags": [
           "Ops"
         ],
@@ -1001,6 +1001,11 @@
             ],
             "description": "Arbitrary capture context, or `null`."
           },
+          "dedupKey": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Caller-chosen dedupe identity for this report, stored on the ticket. A repeat submission carrying the same key does NOT file a second ticket: the open ticket already holding that key is refreshed from this payload (title and the report fields overwritten, a \"re-triggered\" comment appended) and returned with `deduped: true` and `updated: true`. Triage state a human owns — status, priority, assignee, tags — is left untouched, and a `resolved`/`wont_fix` ticket no longer holds the key, so a failure that comes back after being closed files a fresh ticket. Omit it to fall back to the derived (title + `context.step`) dedupe, whose repeats return the existing ticket unchanged."
+          },
           "notify": {
             "anyOf": [
               {
@@ -1017,7 +1022,7 @@
           "title"
         ],
         "additionalProperties": false,
-        "description": "Body for `POST /ops/bug`. The same bug fields as `CreateBugRequest`, minus the `type` discriminator — the path already says what is being filed."
+        "description": "Body for `POST /ops/bug`. The same bug fields as `CreateBugRequest`, minus the `type` discriminator — the path already says what is being filed, plus the public intake's own `dedupKey`."
       },
       "CreatePublicTicketResponse": {
         "type": "object",
@@ -1033,13 +1038,17 @@
           "deduped": {
             "type": "boolean",
             "description": "`true` when an open ticket already tracked this report and nothing was filed (HTTP 200). Absent on a fresh file (HTTP 201)."
+          },
+          "updated": {
+            "type": "boolean",
+            "description": "`true` when the deduped ticket was REFRESHED from this payload and got a \"re-triggered\" comment — only ever set alongside `deduped` on a submission that carried a `dedupKey`. Absent when the existing ticket was returned untouched."
           }
         },
         "required": [
           "number"
         ],
         "additionalProperties": false,
-        "description": "Response for the public ticket intake. A fresh file returns `201` with `id` + `number`; a repeat of a report already tracked by an open ticket returns `200` with that ticket's `number` and `deduped: true`."
+        "description": "Response for the public ticket intake. A fresh file returns `201` with `id` + `number`; a repeat of a report already tracked by an open ticket returns `200` with that ticket's `number` and `deduped: true` — plus `updated: true` when a `dedupKey` re-triggered it and its fields were refreshed."
       },
       "ErrorCode": {
         "type": "string",
@@ -1253,6 +1262,11 @@
             ],
             "description": "Arbitrary capture context, or `null`."
           },
+          "dedupKey": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Caller-chosen dedupe identity for this request, stored on the ticket. Behaves exactly as on `POST /ops/bug`: a repeat carrying the same key refreshes the open ticket already holding it (fields overwritten, a \"re-triggered\" comment appended) and returns `deduped: true` with `updated: true`, instead of filing a second one."
+          },
           "notify": {
             "anyOf": [
               {
@@ -1269,7 +1283,7 @@
           "title"
         ],
         "additionalProperties": false,
-        "description": "Body for `POST /ops/feature-request`. The same feature-request fields as `CreateFeatureRequestRequest`, minus the `type` discriminator — the path already says what is being filed."
+        "description": "Body for `POST /ops/feature-request`. The same feature-request fields as `CreateFeatureRequestRequest`, minus the `type` discriminator — the path already says what is being filed, plus the public intake's own `dedupKey`."
       },
       "ResourceId": {
         "type": "string",
