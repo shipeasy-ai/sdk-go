@@ -1,7 +1,7 @@
 /*
-Shipeasy Admin API (server-SDK surface)
+Shipeasy Admin API
 
-The slice of the Shipeasy admin API that the published server SDKs expose as their optional `AdminClient`. Authenticate with an admin SDK key (`Authorization: Bearer sdk_admin_…`) and scope every request to a project via the `X-Project-Id` header.  Three capabilities, nothing else:  - **File a public ticket** — a bug or a feature request onto the project's ops queue. - **Toggle a kill switch** — flip the switch itself, or one of its named sub-switches, on one environment. - **Manage a flag's whitelist** — read, replace, add to, or remove from the allowlist that admits specific identities ahead of every targeting rule.  Everything else in the admin API is reachable through the Shipeasy CLI and MCP server, which speak the complete contract (`openapi.yaml`).
+REST API for managing feature gates, experiments, configs, universes, and killswitches in a Shipeasy project. Authenticate with an admin SDK key (`Authorization: Bearer sdk_admin_…`) and scope every request to a project via the `X-Project-Id` header.  Mint admin keys via `POST /api/admin/keys` with `type: \"admin\"`. Keys expire after 90 days; rotate with the `revoke` action.
 
 API version: 2.0.0
 */
@@ -41,7 +41,7 @@ var (
 	queryDescape    = strings.NewReplacer( "%5B", "[", "%5D", "]" )
 )
 
-// APIClient manages communication with the Shipeasy Admin API (server-SDK surface) API v2.0.0
+// APIClient manages communication with the Shipeasy Admin API API v2.0.0
 // In most cases there should be only one, shared, APIClient.
 type APIClient struct {
 	cfg    *Configuration
@@ -49,11 +49,51 @@ type APIClient struct {
 
 	// API Services
 
+	APIKeysAPI *APIKeysAPIService
+
+	AgentsAPI *AgentsAPIService
+
+	AlertsAPI *AlertsAPIService
+
+	AttributesAPI *AttributesAPIService
+
+	CommentsAPI *CommentsAPIService
+
+	ConfigsAPI *ConfigsAPIService
+
+	ConnectorsAPI *ConnectorsAPIService
+
+	DraftsAPI *DraftsAPIService
+
+	ErrorsAPI *ErrorsAPIService
+
+	EventsAPI *EventsAPIService
+
+	ExperimentsAPI *ExperimentsAPIService
+
+	FiredAlertsAPI *FiredAlertsAPIService
+
 	FlagsAPI *FlagsAPIService
+
+	InvestigationsAPI *InvestigationsAPIService
+
+	KeysAPI *KeysAPIService
 
 	KillswitchAPI *KillswitchAPIService
 
+	MetricsAPI *MetricsAPIService
+
 	OpsAPI *OpsAPIService
+
+	ProfilesAPI *ProfilesAPIService
+
+	ProjectsAPI *ProjectsAPIService
+
+	TemplatesAPI *TemplatesAPIService
+
+	TriggerAPI *TriggerAPIService
+
+	UniversesAPI *UniversesAPIService
 }
 
 type service struct {
@@ -72,9 +112,29 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.common.client = c
 
 	// API Services
+	c.APIKeysAPI = (*APIKeysAPIService)(&c.common)
+	c.AgentsAPI = (*AgentsAPIService)(&c.common)
+	c.AlertsAPI = (*AlertsAPIService)(&c.common)
+	c.AttributesAPI = (*AttributesAPIService)(&c.common)
+	c.CommentsAPI = (*CommentsAPIService)(&c.common)
+	c.ConfigsAPI = (*ConfigsAPIService)(&c.common)
+	c.ConnectorsAPI = (*ConnectorsAPIService)(&c.common)
+	c.DraftsAPI = (*DraftsAPIService)(&c.common)
+	c.ErrorsAPI = (*ErrorsAPIService)(&c.common)
+	c.EventsAPI = (*EventsAPIService)(&c.common)
+	c.ExperimentsAPI = (*ExperimentsAPIService)(&c.common)
+	c.FiredAlertsAPI = (*FiredAlertsAPIService)(&c.common)
 	c.FlagsAPI = (*FlagsAPIService)(&c.common)
+	c.InvestigationsAPI = (*InvestigationsAPIService)(&c.common)
+	c.KeysAPI = (*KeysAPIService)(&c.common)
 	c.KillswitchAPI = (*KillswitchAPIService)(&c.common)
+	c.MetricsAPI = (*MetricsAPIService)(&c.common)
 	c.OpsAPI = (*OpsAPIService)(&c.common)
+	c.ProfilesAPI = (*ProfilesAPIService)(&c.common)
+	c.ProjectsAPI = (*ProjectsAPIService)(&c.common)
+	c.TemplatesAPI = (*TemplatesAPIService)(&c.common)
+	c.TriggerAPI = (*TriggerAPIService)(&c.common)
+	c.UniversesAPI = (*UniversesAPIService)(&c.common)
 
 	return c
 }
