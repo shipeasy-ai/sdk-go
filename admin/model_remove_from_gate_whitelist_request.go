@@ -1,7 +1,7 @@
 /*
-Shipeasy Admin API (server-SDK surface)
+Shipeasy Admin API
 
-The slice of the Shipeasy admin API that the published server SDKs expose as their optional `AdminClient`. Authenticate with an admin SDK key (`Authorization: Bearer sdk_admin_…`) and scope every request to a project via the `X-Project-Id` header.  Three capabilities, nothing else:  - **File a public ticket** — a bug or a feature request onto the project's ops queue. - **Toggle a kill switch** — flip the switch itself, or one of its named sub-switches, on one environment. - **Manage a flag's whitelist** — read, replace, add to, or remove from the allowlist that admits specific identities ahead of every targeting rule.  Everything else in the admin API is reachable through the Shipeasy CLI and MCP server, which speak the complete contract (`openapi.yaml`).
+REST API for managing feature gates, experiments, configs, universes, and killswitches in a Shipeasy project. Authenticate with an admin SDK key (`Authorization: Bearer sdk_admin_…`) and scope every request to a project via the `X-Project-Id` header.  Mint admin keys via `POST /api/admin/keys` with `type: \"admin\"`. Keys expire after 90 days; rotate with the `revoke` action.
 
 API version: 2.0.0
 */
