@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 )
 
@@ -69,4 +70,24 @@ func TestContractOperationsExist(t *testing.T) {
 	_ = c.FlagsAPI.SetGateWhitelist(ctx, "new_checkout")
 	_ = c.FlagsAPI.AddToGateWhitelist(ctx, "new_checkout")
 	_ = c.FlagsAPI.RemoveFromGateWhitelist(ctx, "new_checkout")
+}
+
+// Tags go out as plain names; the server matches each case-insensitively against
+// the project's existing tags and creates the ones it lacks.
+func TestPublicTicketCarriesTagNames(t *testing.T) {
+	body := NewCreatePublicBugRequest("Checkout 500")
+	body.SetTags([]string{"ios", "Checkout"})
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Tags []string `json:"tags"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Tags) != 2 || got.Tags[0] != "ios" || got.Tags[1] != "Checkout" {
+		t.Fatalf("tags = %v, want [ios Checkout]", got.Tags)
+	}
 }

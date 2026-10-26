@@ -35,7 +35,7 @@ type CreatePublicFeatureRequestRequest struct {
 	AssigneeId NullableString `json:"assigneeId,omitempty"`
 	// Emails of teammates to subscribe to this item's Slack pings at creation.
 	Subscribers []string `json:"subscribers,omitempty"`
-	// Tag names to attach at creation (get-or-created by name, deduped case-insensitively).
+	// Tag names to label the item with, e.g. `[\"ios\", \"checkout\"]`. Each name is matched case-insensitively against the project's existing tags and reuses that tag (keeping its stored casing) when one matches; a name with no match creates a new project tag. Here the tags only label the ticket: the project's tag rules (owner/status/agent routing) are not applied to a public report while it awaits approval.
 	Tags []string `json:"tags,omitempty"`
 	// Email of the reporter, or `null`.
 	ReporterEmail NullableString `json:"reporterEmail,omitempty"`

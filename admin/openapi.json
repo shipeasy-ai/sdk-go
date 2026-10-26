@@ -816,6 +816,12 @@
         ],
         "description": "Lifecycle status of a queue item. The working flow is `open` → `in_progress` → `ready_for_qa` → `resolved` (or `wont_fix`, terminal from any earlier stage). `blocked` marks an item that can't progress until an external dependency clears — a working state a human sets and clears. `ready_for_qa` is what a developer sets once a fix lands; `resolved` is the QA sign-off, normally flipped in the dashboard after verification — set it directly from code only when the fix has been verified end-to-end. `investigating_by_ai` is a system-owned display state — set when the AI agent (Jarvis) picks an item up to investigate, never chosen by a human — so it is shown but not offered as a manual choice. `pending_approval` is the one human-gated holding state: it parks an item OUT of the work queue until a human promotes it to `open` in the dashboard, so `GET /api/admin/ops` excludes it under `status=all`/default and returns it only when requested as an exact `status`. It covers untriaged inbound that must never be auto-implemented — connector requests filed from a customer's connectors panel, and questions funnelled in from the \"Stuck in onboarding?\" assistant — where approving means flipping the status to `open`. Two earlier values were removed in favour of this single gate: `triage` (the onboarding-help bucket, now `pending_approval`) and `triaged` (a redundant \"looked at but not started\" step, now plain `open`)."
       },
+      "TagName": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "description": "A tag name. Trimmed; matched case-insensitively against the project's existing tags."
+      },
       "NotificationTarget": {
         "anyOf": [
           {
@@ -935,11 +941,12 @@
           },
           "tags": {
             "type": "array",
+            "maxItems": 50,
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/TagName"
             },
             "default": [],
-            "description": "Tag names to attach at creation (get-or-created by name, deduped case-insensitively)."
+            "description": "Tag names to label the item with, e.g. `[\"ios\", \"checkout\"]`. Each name is matched case-insensitively against the project's existing tags and reuses that tag (keeping its stored casing) when one matches; a name with no match creates a new project tag. Here the tags only label the ticket: the project's tag rules (owner/status/agent routing) are not applied to a public report while it awaits approval."
           },
           "reporterEmail": {
             "anyOf": [
@@ -1208,11 +1215,12 @@
           },
           "tags": {
             "type": "array",
+            "maxItems": 50,
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/TagName"
             },
             "default": [],
-            "description": "Tag names to attach at creation (get-or-created by name, deduped case-insensitively)."
+            "description": "Tag names to label the item with, e.g. `[\"ios\", \"checkout\"]`. Each name is matched case-insensitively against the project's existing tags and reuses that tag (keeping its stored casing) when one matches; a name with no match creates a new project tag. Here the tags only label the ticket: the project's tag rules (owner/status/agent routing) are not applied to a public report while it awaits approval."
           },
           "reporterEmail": {
             "anyOf": [

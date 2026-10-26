@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Public tickets accept `tags`
+
+The `Tags` field on `CreatePublicBug` / `CreatePublicFeatureRequest` bodies is
+now honoured by the edge worker (at most 50 names, each 1–64 characters — the
+server rejects anything else with a 400): each name is matched case-insensitively against the project's
+existing tags — reused when it matches, created when it doesn't — and attached
+to the filed ticket. Previously the field was accepted and silently dropped.
+
 ## 0.21.0 — 2026-07-27
 
 ### BREAKING: the optional Admin API client is now seven purpose-built operations
