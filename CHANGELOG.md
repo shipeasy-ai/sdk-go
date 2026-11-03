@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Admin API client: `ListOpsItems` — list the ops queue, with the new `reporter`
+  (filer's email, case-insensitive) and `closed_since` filters; every item now
+  carries `closed_at`. Regenerated from the server-SDK spec, which gains
+  `GET /api/admin/ops`.
+
 ## 0.22.0 — 2026-10-26
 
 ### Public tickets accept `tags`

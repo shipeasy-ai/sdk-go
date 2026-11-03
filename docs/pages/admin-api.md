@@ -5,16 +5,17 @@ The base SDK *evaluates* flags, configs, and experiments
 is a separate, optional surface for *administering* a small, deliberate slice of
 those resources from server code.
 
-It is **intentionally lean** — three capabilities, seven operations, not the
+It is **intentionally lean** — four capabilities, eight operations, not the
 whole admin API:
 
 | Capability           | Operations                                                                             |
 | -------------------- | -------------------------------------------------------------------------------------- |
+| List the ops queue   | `ListOpsItems` |
 | File a public ticket (client key) | `CreatePublicBug`, `CreatePublicFeatureRequest`                                          |
 | Toggle a kill switch | `ToggleKillswitch`                                                                       |
 | Manage a whitelist   | `GetGateWhitelist`, `SetGateWhitelist`, `AddToGateWhitelist`, `RemoveFromGateWhitelist`  |
 
-Everything else in the admin API — listing, generic CRUD, experiments, metrics,
+Everything else in the admin API — generic CRUD, experiments, metrics,
 events, configs, i18n, projects, connectors, keys — is deliberately **not** here.
 Reach for the Shipeasy CLI or MCP for those; they speak the complete spec.
 Keeping the vendored contract small is what keeps the generated client small.
@@ -59,7 +60,7 @@ Every operation is a fluent request builder: chain the body/params, then
 Two dedicated endpoints, so there is no discriminator to set and no fields from
 the other kind in the request. Both accept just a title.
 
-These two are the **public** intake, and they differ from the other five
+These two are the **public** intake, and they differ from the other six
 operations in three ways worth knowing before you call them:
 
 - They authenticate with a **client** key (`sdk_client_…`) carrying the
@@ -101,6 +102,34 @@ feature := admin.NewCreatePublicFeatureRequestRequest("Dark mode")
 feature.SetUseCase("Reduce eye strain at night")
 _, _, _ = client.OpsAPI.CreatePublicFeatureRequest(ctx).
     CreatePublicFeatureRequestRequest(*feature).Execute()
+```
+
+## List the ops queue
+
+``ListOpsItems`` reads the project's tickets (bugs, feature requests, errors, alerts) in
+work order — highest priority first, oldest first within a priority. Filters
+combine with AND and are applied before paging; walk the queue with `limit` and
+`offset`.
+
+- `Reporter` — only items filed by one email (case-insensitive, exact). Items with
+  no reporter never match, and while it is set `status=all` also returns
+  `pending_approval` items, so a reporter sees the ticket they just filed.
+- `ClosedSince` — items still being worked are always returned; `resolved` and
+  `wont_fix` items only when they closed at or after this time.
+- Every item carries `ClosedAt` (ISO-8601, null while open), so you can tell when
+  a ticket closed without reading `UpdatedAt`.
+
+```go
+items, _, err := client.OpsAPI.ListOpsItems(ctx).
+    Status("all").
+    Reporter("jane@clinic.com").
+    ClosedSince(time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)).
+    Limit(50).
+    Execute()
+if err != nil { /* handle */ }
+for _, i := range items {
+    fmt.Println(i.Title, i.Status, i.ClosedAt.Get())
+}
 ```
 
 ## Toggle a kill switch
