@@ -1,7 +1,7 @@
 /*
 Shipeasy Admin API (server-SDK surface)
 
-The slice of the Shipeasy admin API that the published server SDKs expose as their optional `AdminClient`. Authenticate with an admin SDK key (`Authorization: Bearer sdk_admin_…`) and scope every request to a project via the `X-Project-Id` header.  Three capabilities, nothing else:  - **File a public ticket** — a bug or a feature request onto the project's ops queue. - **Toggle a kill switch** — flip the switch itself, or one of its named sub-switches, on one environment. - **Manage a flag's whitelist** — read, replace, add to, or remove from the allowlist that admits specific identities ahead of every targeting rule.  Everything else in the admin API is reachable through the Shipeasy CLI and MCP server, which speak the complete contract (`openapi.yaml`).
+The slice of the Shipeasy admin API that the published server SDKs expose as their optional `AdminClient`. Authenticate with an admin SDK key (`Authorization: Bearer sdk_admin_…`) and scope every request to a project via the `X-Project-Id` header.  Four capabilities, nothing else:  - **List the ops queue** — read the project's tickets, filtered by type, status, priority, owner, reporter (`reporter`) and close time (`closedSince`). - **File a public ticket** — a bug or a feature request onto the project's ops queue. - **Toggle a kill switch** — flip the switch itself, or one of its named sub-switches, on one environment. - **Manage a flag's whitelist** — read, replace, add to, or remove from the allowlist that admits specific identities ahead of every targeting rule.  Everything else in the admin API is reachable through the Shipeasy CLI and MCP server, which speak the complete contract (`openapi.yaml`).
 
 API version: 2.0.0
 */
@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 
@@ -396,6 +397,314 @@ func (a *OpsAPIService) CreatePublicFeatureRequestExecute(r ApiCreatePublicFeatu
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 503 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type ApiListOpsItemsRequest struct {
+	ctx context.Context
+	ApiService *OpsAPIService
+	xProjectId *string
+	type_ *string
+	status *string
+	priority *string
+	scope *string
+	qaQuestions *string
+	limit *int32
+	offset *int32
+	owner *string
+	reporter *string
+	closedSince *time.Time
+}
+
+// Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it).
+func (r ApiListOpsItemsRequest) XProjectId(xProjectId string) ApiListOpsItemsRequest {
+	r.xProjectId = &xProjectId
+	return r
+}
+
+// Filter by item type, or &#x60;all&#x60; (the default). Every type a returned item can carry is filterable, including the auto-filed ones.
+func (r ApiListOpsItemsRequest) Type_(type_ string) ApiListOpsItemsRequest {
+	r.type_ = &type_
+	return r
+}
+
+// Filter by one lifecycle status, &#x60;unresolved&#x60; for every status that is not &#x60;resolved&#x60; or &#x60;wont_fix&#x60;, or &#x60;all&#x60; for every status. Defaults to &#x60;all&#x60; over HTTP; the CLI and MCP tool default to &#x60;unresolved&#x60;, so pass &#x60;all&#x60; there to include resolved and won&#39;t-fix items. The human-gated holding state (&#x60;pending_approval&#x60;) is excluded from &#x60;unresolved&#x60; and &#x60;all&#x60;, and returned only when requested as the exact status.
+func (r ApiListOpsItemsRequest) Status(status string) ApiListOpsItemsRequest {
+	r.status = &status
+	return r
+}
+
+// Filter by triage priority, or &#x60;all&#x60; (the default). Items with no priority set are returned only under &#x60;all&#x60;.
+func (r ApiListOpsItemsRequest) Priority(priority string) ApiListOpsItemsRequest {
+	r.priority = &priority
+	return r
+}
+
+// &#x60;ready&#x60; narrows to the items ready to be picked up right now: status &#x60;open&#x60;, no open run (nobody has acked it and is still working), and either unowned (no person and no agent) or reopened (sent back to &#x60;open&#x60; after an earlier run finished). Leave &#x60;status&#x60; unset with it. &#x60;all&#x60; (the default) applies no such narrowing.
+func (r ApiListOpsItemsRequest) Scope(scope string) ApiListOpsItemsRequest {
+	r.scope = &scope
+	return r
+}
+
+// &#x60;open&#x60; narrows to the items with at least one unanswered QA question — the backlog QA answers first (read each with &#x60;ops get&#x60;, answer with &#x60;ops qa-questions answer&#x60;). &#x60;all&#x60; (the default) applies no such narrowing.
+func (r ApiListOpsItemsRequest) QaQuestions(qaQuestions string) ApiListOpsItemsRequest {
+	r.qaQuestions = &qaQuestions
+	return r
+}
+
+// Page size — max items to return (1–500). A page shorter than &#x60;limit&#x60; is the last one.
+func (r ApiListOpsItemsRequest) Limit(limit int32) ApiListOpsItemsRequest {
+	r.limit = &limit
+	return r
+}
+
+// Number of items to skip before the page starts. Defaults to 0. The order is stable, so &#x60;offset +&#x3D; limit&#x60; walks the queue page by page.
+func (r ApiListOpsItemsRequest) Offset(offset int32) ApiListOpsItemsRequest {
+	r.offset = &offset
+	return r
+}
+
+// Narrow to items owned by one person OR one agent. Matches a person by &#x60;users.id&#x60;, email, or display name, and an agent by connector id, display name, or kebab-case handle — e.g. &#x60;owner&#x3D;Claude&#x60; or &#x60;owner&#x3D;alice@acme.dev&#x60;. Case-insensitive exact match.
+func (r ApiListOpsItemsRequest) Owner(owner string) ApiListOpsItemsRequest {
+	r.owner = &owner
+	return r
+}
+
+// Narrow to items filed by one reporter — an email, matched case-insensitive and exact against &#x60;reporterEmail&#x60;. Items with no reporter never match. While set, &#x60;status&#x3D;all&#x60; also returns &#x60;pending_approval&#x60; items: public intake files every ticket as &#x60;pending_approval&#x60;, and a reporter must see the ticket they just filed.
+func (r ApiListOpsItemsRequest) Reporter(reporter string) ApiListOpsItemsRequest {
+	r.reporter = &reporter
+	return r
+}
+
+// ISO-8601 timestamp. Items still being worked are always returned; &#x60;resolved&#x60; and &#x60;wont_fix&#x60; items only when they closed at or after this time (see &#x60;closedAt&#x60;). Combines with &#x60;status&#x60; like any other filter.
+func (r ApiListOpsItemsRequest) ClosedSince(closedSince time.Time) ApiListOpsItemsRequest {
+	r.closedSince = &closedSince
+	return r
+}
+
+func (r ApiListOpsItemsRequest) Execute() ([]ListOpsItemsResponseInner, *http.Response, error) {
+	return r.ApiService.ListOpsItemsExecute(r)
+}
+
+/*
+ListOpsItems List the operational queue
+
+Returns the unified ops queue (bugs, feature requests, errors, alerts, measurement plans) in work order — highest priority first, oldest first within a priority — so consumers work it top-down. Every filter is applied in SQL before paging, and filters combine with AND. Human-gated holding states (items awaiting human sign-off in the dashboard) are never returned by `all`/default status.
+
+**Filters:** `type` (one item type), `status` (one lifecycle status, or `unresolved` — everything not yet `resolved`/`wont_fix`), `priority` (one triage priority), `owner` (one person or agent), `reporter` (one filer's email), `closedSince` (drop items closed before a time), and `scope=ready` — the items ready to be picked up right now: `open`, with nobody working them (no open run), and either unowned or reopened (sent back to `open` after an earlier run finished).
+
+**Paging:** `limit` is the page size and `offset` the number of items to skip. The order is stable, so walk the queue with `offset += limit`; a page shorter than `limit` is the last one.
+
+**Use case:** Pull the open queue to triage — e.g. every `bug` still `open` — before working items down one by one.
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @return ApiListOpsItemsRequest
+*/
+func (a *OpsAPIService) ListOpsItems(ctx context.Context) ApiListOpsItemsRequest {
+	return ApiListOpsItemsRequest{
+		ApiService: a,
+		ctx: ctx,
+	}
+}
+
+// Execute executes the request
+//  @return []ListOpsItemsResponseInner
+func (a *OpsAPIService) ListOpsItemsExecute(r ApiListOpsItemsRequest) ([]ListOpsItemsResponseInner, *http.Response, error) {
+	var (
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []ListOpsItemsResponseInner
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "OpsAPIService.ListOpsItems")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/admin/ops"
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+
+	if r.type_ != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "type", r.type_, "form", "")
+	} else {
+		var defaultValue string = "all"
+		parameterAddToHeaderOrQuery(localVarQueryParams, "type", defaultValue, "form", "")
+		r.type_ = &defaultValue
+	}
+	if r.status != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "status", r.status, "form", "")
+	} else {
+		var defaultValue string = "all"
+		parameterAddToHeaderOrQuery(localVarQueryParams, "status", defaultValue, "form", "")
+		r.status = &defaultValue
+	}
+	if r.priority != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "priority", r.priority, "form", "")
+	} else {
+		var defaultValue string = "all"
+		parameterAddToHeaderOrQuery(localVarQueryParams, "priority", defaultValue, "form", "")
+		r.priority = &defaultValue
+	}
+	if r.scope != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "scope", r.scope, "form", "")
+	} else {
+		var defaultValue string = "all"
+		parameterAddToHeaderOrQuery(localVarQueryParams, "scope", defaultValue, "form", "")
+		r.scope = &defaultValue
+	}
+	if r.qaQuestions != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "qaQuestions", r.qaQuestions, "form", "")
+	} else {
+		var defaultValue string = "all"
+		parameterAddToHeaderOrQuery(localVarQueryParams, "qaQuestions", defaultValue, "form", "")
+		r.qaQuestions = &defaultValue
+	}
+	if r.limit != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "limit", r.limit, "form", "")
+	} else {
+		var defaultValue int32 = 200
+		parameterAddToHeaderOrQuery(localVarQueryParams, "limit", defaultValue, "form", "")
+		r.limit = &defaultValue
+	}
+	if r.offset != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "offset", r.offset, "form", "")
+	} else {
+		var defaultValue int32 = 0
+		parameterAddToHeaderOrQuery(localVarQueryParams, "offset", defaultValue, "form", "")
+		r.offset = &defaultValue
+	}
+	if r.owner != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "owner", r.owner, "form", "")
+	}
+	if r.reporter != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "reporter", r.reporter, "form", "")
+	}
+	if r.closedSince != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "closedSince", r.closedSince, "form", "")
+	}
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	if r.xProjectId != nil {
+		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-Project-Id", r.xProjectId, "simple", "")
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 401 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 409 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 422 {
 			var v Error
 			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
 			if err != nil {

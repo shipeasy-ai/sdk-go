@@ -3,7 +3,7 @@
   "info": {
     "title": "Shipeasy Admin API (server-SDK surface)",
     "version": "2.0.0",
-    "description": "The slice of the Shipeasy admin API that the published server SDKs expose as their optional `AdminClient`. Authenticate with an admin SDK key (`Authorization: Bearer sdk_admin_…`) and scope every request to a project via the `X-Project-Id` header.\n\nThree capabilities, nothing else:\n\n- **File a public ticket** — a bug or a feature request onto the project's ops queue.\n- **Toggle a kill switch** — flip the switch itself, or one of its named sub-switches, on one environment.\n- **Manage a flag's whitelist** — read, replace, add to, or remove from the allowlist that admits specific identities ahead of every targeting rule.\n\nEverything else in the admin API is reachable through the Shipeasy CLI and MCP server, which speak the complete contract (`openapi.yaml`).",
+    "description": "The slice of the Shipeasy admin API that the published server SDKs expose as their optional `AdminClient`. Authenticate with an admin SDK key (`Authorization: Bearer sdk_admin_…`) and scope every request to a project via the `X-Project-Id` header.\n\nFour capabilities, nothing else:\n\n- **List the ops queue** — read the project's tickets, filtered by type, status, priority, owner, reporter (`reporter`) and close time (`closedSince`).\n- **File a public ticket** — a bug or a feature request onto the project's ops queue.\n- **Toggle a kill switch** — flip the switch itself, or one of its named sub-switches, on one environment.\n- **Manage a flag's whitelist** — read, replace, add to, or remove from the allowlist that admits specific identities ahead of every targeting rule.\n\nEverything else in the admin API is reachable through the Shipeasy CLI and MCP server, which speak the complete contract (`openapi.yaml`).",
     "contact": {
       "name": "Shipeasy",
       "url": "https://shipeasy.ai"
@@ -43,6 +43,240 @@
     }
   ],
   "paths": {
+    "/api/admin/ops": {
+      "get": {
+        "operationId": "listOpsItems",
+        "summary": "List the operational queue",
+        "description": "Returns the unified ops queue (bugs, feature requests, errors, alerts, measurement plans) in work order — highest priority first, oldest first within a priority — so consumers work it top-down. Every filter is applied in SQL before paging, and filters combine with AND. Human-gated holding states (items awaiting human sign-off in the dashboard) are never returned by `all`/default status.\n\n**Filters:** `type` (one item type), `status` (one lifecycle status, or `unresolved` — everything not yet `resolved`/`wont_fix`), `priority` (one triage priority), `owner` (one person or agent), `reporter` (one filer's email), `closedSince` (drop items closed before a time), and `scope=ready` — the items ready to be picked up right now: `open`, with nobody working them (no open run), and either unowned or reopened (sent back to `open` after an earlier run finished).\n\n**Paging:** `limit` is the page size and `offset` the number of items to skip. The order is stable, so walk the queue with `offset += limit`; a page shorter than `limit` is the last one.\n\n**Use case:** Pull the open queue to triage — e.g. every `bug` still `open` — before working items down one by one.",
+        "tags": [
+          "Ops"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "description": "Filter by item type, or `all` (the default). Every type a returned item can carry is filterable, including the auto-filed ones.",
+            "schema": {
+              "default": "all",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "bug",
+                    "feature_request",
+                    "error",
+                    "alert",
+                    "measure_plan"
+                  ],
+                  "description": "Queue item type. `bug` and `feature_request` are user-fileable; `error`, `alert`, and `measure_plan` tickets are auto-filed by the platform."
+                },
+                {
+                  "type": "string",
+                  "const": "all"
+                }
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter by one lifecycle status, `unresolved` for every status that is not `resolved` or `wont_fix`, or `all` for every status. Defaults to `all` over HTTP; the CLI and MCP tool default to `unresolved`, so pass `all` there to include resolved and won't-fix items. The human-gated holding state (`pending_approval`) is excluded from `unresolved` and `all`, and returned only when requested as the exact status.",
+            "schema": {
+              "default": "all",
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OpsItemStatus"
+                },
+                {
+                  "type": "string",
+                  "const": "unresolved"
+                },
+                {
+                  "type": "string",
+                  "const": "all"
+                }
+              ]
+            },
+            "x-cli": {
+              "default": "unresolved"
+            },
+            "x-mcp": {
+              "default": "unresolved"
+            }
+          },
+          {
+            "name": "priority",
+            "in": "query",
+            "required": false,
+            "description": "Filter by triage priority, or `all` (the default). Items with no priority set are returned only under `all`.",
+            "schema": {
+              "default": "all",
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OpsItemPriority"
+                },
+                {
+                  "type": "string",
+                  "const": "all"
+                }
+              ]
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "description": "`ready` narrows to the items ready to be picked up right now: status `open`, no open run (nobody has acked it and is still working), and either unowned (no person and no agent) or reopened (sent back to `open` after an earlier run finished). Leave `status` unset with it. `all` (the default) applies no such narrowing.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "ready"
+              ],
+              "default": "all"
+            }
+          },
+          {
+            "name": "qaQuestions",
+            "in": "query",
+            "required": false,
+            "description": "`open` narrows to the items with at least one unanswered QA question — the backlog QA answers first (read each with `ops get`, answer with `ops qa-questions answer`). `all` (the default) applies no such narrowing.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "open"
+              ],
+              "default": "all"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Page size — max items to return (1–500). A page shorter than `limit` is the last one.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 200
+            },
+            "x-mcp": {
+              "required": true
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Number of items to skip before the page starts. Defaults to 0. The order is stable, so `offset += limit` walks the queue page by page.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000,
+              "default": 0
+            }
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "required": false,
+            "description": "Narrow to items owned by one person OR one agent. Matches a person by `users.id`, email, or display name, and an agent by connector id, display name, or kebab-case handle — e.g. `owner=Claude` or `owner=alice@acme.dev`. Case-insensitive exact match.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reporter",
+            "in": "query",
+            "required": false,
+            "description": "Narrow to items filed by one reporter — an email, matched case-insensitive and exact against `reporterEmail`. Items with no reporter never match. While set, `status=all` also returns `pending_approval` items: public intake files every ticket as `pending_approval`, and a reporter must see the ticket they just filed.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "closedSince",
+            "in": "query",
+            "required": false,
+            "description": "ISO-8601 timestamp. Items still being worked are always returned; `resolved` and `wont_fix` items only when they closed at or after this time (see `closedAt`). Combines with `status` like any other filter.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List the operational queue",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListOpsItemsResponse"
+                },
+                "example": [
+                  {
+                    "id": "fb_01j7w8a1b2c3d4e5f6g7h8i9j0",
+                    "number": 7,
+                    "type": "bug",
+                    "title": "Checkout button misaligned on mobile",
+                    "status": "open",
+                    "priority": "high",
+                    "source": "team",
+                    "owner": {
+                      "user": {
+                        "id": "usr_01j7w8a1b2c3d4e5f6g7h8i9j0",
+                        "email": "alice@acme.dev",
+                        "name": "Alice"
+                      },
+                      "agent": null
+                    },
+                    "run": null,
+                    "lastRun": null,
+                    "createdAt": "2026-06-20T09:14:08.000Z",
+                    "updatedAt": "2026-06-21T10:02:44.000Z"
+                  }
+                ]
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          }
+        },
+        "x-error-codes": [
+          "BAD_REQUEST",
+          "UNAUTHORIZED",
+          "FORBIDDEN"
+        ],
+        "x-cli": {
+          "name": "list"
+        },
+        "x-mcp": {
+          "description": "List the operational queue (bugs, feature requests, errors, alerts, measurement plans) in work order — highest priority first, oldest first within a priority. PAGING: `limit` (page size, 1–500) is REQUIRED — the call fails without it. Start at `offset: 0` and add `limit` to `offset` for the next page; a page shorter than `limit` is the last one. FILTERS (all optional, combined with AND, applied before paging): `type` = bug | feature_request | error | alert | measure_plan; `status` = open | in_progress | investigating_by_ai | blocked | ready_for_qa | resolved | wont_fix | pending_approval | unresolved | all — DEFAULTS TO `unresolved` (omitted = items still being worked: open, in_progress, blocked, ready_for_qa…; no resolved or wont_fix ones). Pass `status: \"all\"` to include resolved and wont_fix too (pending_approval is only returned when asked for exactly); `priority` = critical | high | medium | nice_to_have; `owner` = a person (id, email or name) or an agent (connector id, name or handle, e.g. \"Claude\"); `scope: \"ready\"` = what to work on now — open items nobody is working (no open run) that are unowned or were reopened after an earlier run. Use `scope: \"ready\"` to pick the next item, then `ops_ack` it."
+        }
+      }
+    },
     "/ops/bug": {
       "post": {
         "operationId": "createPublicBug",
@@ -404,7 +638,7 @@
             "name": "id",
             "in": "path",
             "required": true,
-            "description": "Stable opaque gate id (`gate_…`) or the gate's `name`.",
+            "description": "Stable opaque gate id (`gat_…`) or the gate's `name`.",
             "schema": {
               "$ref": "#/components/schemas/ResourceId"
             }
@@ -419,7 +653,7 @@
                   "$ref": "#/components/schemas/GateWhitelist"
                 },
                 "example": {
-                  "id": "gate_01j7w8a1b2c3d4e5f6g7h8i9j0",
+                  "id": "gat_01j7w8a1b2c3d4e5f6g7h8i9j0",
                   "name": "new_checkout",
                   "attr": "email",
                   "entries": [
@@ -477,7 +711,7 @@
             "name": "id",
             "in": "path",
             "required": true,
-            "description": "Stable opaque gate id (`gate_…`) or the gate's `name`.",
+            "description": "Stable opaque gate id (`gat_…`) or the gate's `name`.",
             "schema": {
               "$ref": "#/components/schemas/ResourceId"
             }
@@ -530,7 +764,7 @@
                   "$ref": "#/components/schemas/GateWhitelist"
                 },
                 "example": {
-                  "id": "gate_01j7w8a1b2c3d4e5f6g7h8i9j0",
+                  "id": "gat_01j7w8a1b2c3d4e5f6g7h8i9j0",
                   "name": "new_checkout",
                   "attr": "email",
                   "entries": [
@@ -589,7 +823,7 @@
             "name": "id",
             "in": "path",
             "required": true,
-            "description": "Stable opaque gate id (`gate_…`) or the gate's `name`.",
+            "description": "Stable opaque gate id (`gat_…`) or the gate's `name`.",
             "schema": {
               "$ref": "#/components/schemas/ResourceId"
             }
@@ -634,7 +868,7 @@
                   "$ref": "#/components/schemas/GateWhitelist"
                 },
                 "example": {
-                  "id": "gate_01j7w8a1b2c3d4e5f6g7h8i9j0",
+                  "id": "gat_01j7w8a1b2c3d4e5f6g7h8i9j0",
                   "name": "new_checkout",
                   "attr": "email",
                   "entries": [
@@ -695,7 +929,7 @@
             "name": "id",
             "in": "path",
             "required": true,
-            "description": "Stable opaque gate id (`gate_…`) or the gate's `name`.",
+            "description": "Stable opaque gate id (`gat_…`) or the gate's `name`.",
             "schema": {
               "$ref": "#/components/schemas/ResourceId"
             }
@@ -730,7 +964,7 @@
                   "$ref": "#/components/schemas/GateWhitelist"
                 },
                 "example": {
-                  "id": "gate_01j7w8a1b2c3d4e5f6g7h8i9j0",
+                  "id": "gat_01j7w8a1b2c3d4e5f6g7h8i9j0",
                   "name": "new_checkout",
                   "attr": "email",
                   "entries": [
@@ -791,17 +1025,18 @@
         "description": "Pass a **client** SDK key as `X-SDK-Key: sdk_client_…`. Used only by the public ticket intake (`POST /ops/bug`, `POST /ops/feature-request`), which is served by the edge worker rather than the admin API.\n\nClient keys are designed to be embedded in shipped code — a CLI, an installer, a browser bundle — so presenting one here is safe by construction: it can do nothing but file a rate-limited ticket into its own project, in a state a human must approve. It carries no read access and cannot reach any other operation in this contract.\n\nThe key must additionally carry the `tickets:public_create` scope, and its project must have public ticket creation enabled."
       }
     },
+    "parameters": {
+      "ProjectId": {
+        "name": "X-Project-Id",
+        "in": "header",
+        "required": false,
+        "description": "Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it).",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
     "schemas": {
-      "OpsItemPriority": {
-        "type": "string",
-        "enum": [
-          "nice_to_have",
-          "medium",
-          "high",
-          "critical"
-        ],
-        "description": "Triage priority of a queue item. The lowest tier is `nice_to_have` (not `low`) — carried over from the feature-request \"importance\" scale this priority set replaced."
-      },
       "OpsItemStatus": {
         "type": "string",
         "enum": [
@@ -816,11 +1051,772 @@
         ],
         "description": "Lifecycle status of a queue item. The working flow is `open` → `in_progress` → `ready_for_qa` → `resolved` (or `wont_fix`, terminal from any earlier stage). `blocked` marks an item that can't progress until an external dependency clears — a working state a human sets and clears. `ready_for_qa` is what a developer sets once a fix lands; `resolved` is the QA sign-off, normally flipped in the dashboard after verification — set it directly from code only when the fix has been verified end-to-end. `investigating_by_ai` is a system-owned display state — set when the AI agent (Jarvis) picks an item up to investigate, never chosen by a human — so it is shown but not offered as a manual choice. `pending_approval` is the one human-gated holding state: it parks an item OUT of the work queue until a human promotes it to `open` in the dashboard, so `GET /api/admin/ops` excludes it under `status=all`/default and returns it only when requested as an exact `status`. It covers untriaged inbound that must never be auto-implemented — connector requests filed from a customer's connectors panel, and questions funnelled in from the \"Stuck in onboarding?\" assistant — where approving means flipping the status to `open`. Two earlier values were removed in favour of this single gate: `triage` (the onboarding-help bucket, now `pending_approval`) and `triaged` (a redundant \"looked at but not started\" step, now plain `open`)."
       },
-      "TagName": {
+      "OpsItemPriority": {
         "type": "string",
-        "minLength": 1,
-        "maxLength": 64,
-        "description": "A tag name. Trimmed; matched case-insensitively against the project's existing tags."
+        "enum": [
+          "nice_to_have",
+          "medium",
+          "high",
+          "critical"
+        ],
+        "description": "Triage priority of a queue item. The lowest tier is `nice_to_have` (not `low`) — carried over from the feature-request \"importance\" scale this priority set replaced."
+      },
+      "OpsInvestigationState": {
+        "type": "string",
+        "enum": [
+          "pr_ready",
+          "pr_merged",
+          "pr_closed",
+          "investigated",
+          "detected",
+          "question",
+          "ready_for_qa",
+          "pending_approval",
+          "working",
+          "backlog"
+        ],
+        "description": "Where automation has taken an item in the investigation lifecycle — the signal the ops cockpit renders as \"what AI did\" plus the one action expected of the user. It is **written as a side-effect of the actions that already happen**, never authored on its own: linking a PR sets `pr_ready`, moving to `in_progress` sets `working`, `ready_for_qa` sets `ready_for_qa`, a system/assistant reply sets `question`, resolving clears it, and creation seeds `backlog` for every untouched item (bugs, features, and auto-filed error/alert tickets alike — type is not a signal). `backlog` is the single \"nothing has happened yet\" state — how urgent that is reads off `priority`, not off a separate state, and its one action is to hand the item to an agent. `investigated`/`detected` are set when a completed agent run leaves findings to review, not at filing time. `pr_merged` and `pr_closed` are written by the GitHub `pull_request` webhook when the linked PR reaches a terminal outcome — merged (the fix shipped, resolve the item) or closed without merging (the fix was rejected, decide what happens next). Absent on rows filed before the field existed — consumers should treat a missing value as \"derive from the other fields\"."
+      },
+      "OpsBrowserContext": {
+        "type": "object",
+        "properties": {
+          "pageUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "URL of the page the report was filed from, or `null`."
+          },
+          "userAgent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reporter's user-agent string, or `null`."
+          },
+          "viewport": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reporter's viewport (e.g. `1280x720`), or `null`."
+          }
+        },
+        "additionalProperties": {},
+        "description": "Auto-collected browser environment for a `bug`/`feature_request`, captured at file time."
+      },
+      "OpsErrorContext": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The tracked `errors` row id (fetch full detail via `related.error`)."
+          },
+          "fingerprint": {
+            "type": "string",
+            "description": "Stable dedupe key of the tracked error."
+          },
+          "causedByFingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fingerprint of the upstream issue this error descends from (set when the same error was reported at an inner boundary first), or `null` for a root issue."
+          },
+          "errorType": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Error class/name, e.g. `TypeError`, or `null` when the source didn't supply one."
+          },
+          "message": {
+            "type": "string",
+            "description": "The error message."
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The `see()` consequence subject — the `causes_the(<subject>)` value. Grep the codebase for this to find the throw site. `null` if the error was never instrumented."
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The `see()` consequence outcome — the `.to(<outcome>)` value. `null` if uninstrumented."
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`see()` error kind: `caught` | `uncaught` | `unhandled_rejection` | `network` | `violation`."
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which SDK side reported it: `client` | `server`."
+          },
+          "env": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Published env the reporting SDK ran against (dev/staging/prod)."
+          },
+          "count": {
+            "type": "number",
+            "description": "Folded occurrence count for this fingerprint."
+          },
+          "firstSeenAt": {
+            "type": "string",
+            "description": "ISO-8601 timestamp of the first occurrence."
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "description": "ISO-8601 timestamp of the most recent occurrence."
+          },
+          "seenUrls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Distinct, id-normalized routes this error has surfaced on (UUIDs/ids collapsed to `#`)."
+          },
+          "stackTail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The last 3 non-empty lines of the latest occurrence's stack — the innermost frames closest to where the throw bubbled out, baked in as an at-a-glance locator. `null` when the source supplied no stack. Fetch the full stack via `related.error`."
+          },
+          "sdkVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "@shipeasy/sdk version of the latest occurrence, or `null`."
+          }
+        },
+        "required": [
+          "id",
+          "fingerprint",
+          "message",
+          "count",
+          "firstSeenAt",
+          "lastSeenAt",
+          "seenUrls"
+        ],
+        "additionalProperties": {},
+        "description": "Hydrated detail for an auto-filed `error` ticket, read from the tracked `errors` row at request time (so `count`/`lastSeenAt` reflect the latest state)."
+      },
+      "OpsAlertRuleSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Alert-rule id."
+          },
+          "name": {
+            "type": "string",
+            "description": "Alert-rule name."
+          },
+          "comparator": {
+            "type": "string",
+            "enum": [
+              "gt",
+              "gte",
+              "lt",
+              "lte"
+            ],
+            "description": "How `observedValue` is compared to `threshold`."
+          },
+          "threshold": {
+            "type": "number",
+            "description": "The threshold value the rule fires on."
+          },
+          "windowHours": {
+            "type": "number",
+            "description": "Rolling evaluation window in hours."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "comparator",
+          "threshold",
+          "windowHours"
+        ],
+        "additionalProperties": {},
+        "description": "The condition of a metric-rule alert."
+      },
+      "OpsAlertMetricSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Metric id (fetch full detail via `related.metric`)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Metric name."
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The event name(s) the metric aggregates over — one for count metrics, numerator + denominator for ratio metrics. Grep the codebase for `track('<event>')` on each to find the instrumentation feeding the metric."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "events"
+        ],
+        "additionalProperties": {},
+        "description": "The metric an alert watches, with its backing events."
+      },
+      "OpsAlertContext": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "metric_rule",
+              "killswitch_armed",
+              "experiment_srm",
+              "experiment_peek",
+              "guardrail"
+            ],
+            "description": "What kind of condition opened this alert instance."
+          },
+          "dedupeKey": {
+            "type": "string",
+            "description": "Stable per-condition key; with `source` forms the ticket's `sourceRef`."
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instance's one-line reading — the observed condition in words."
+          },
+          "ruleId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Id of the alert rule that opened this instance, or `null` for a built-in condition."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "danger",
+              "warn",
+              "info"
+            ],
+            "description": "How loud the alert is. Severity belongs to the RULE and is carried by this ticket as `priority`; it is DERIVED from that on the hydrated single-item read, and absent from the raw stored context list rows return."
+          },
+          "observedValue": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The metric value that tripped the rule, or `null`."
+          },
+          "href": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dashboard deep link to the alert, or `null`."
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "resolved",
+                  "dismissed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Firing state of this instance, projected from the ticket's own status (`active` while it is open, i.e. while the condition holds). Absent from the raw stored context list rows return."
+          },
+          "activeSince": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO-8601 timestamp the alert became active, or `null`."
+          },
+          "resolvedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO-8601 timestamp the alert cleared, or `null` while still active."
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OpsAlertRuleSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The alert rule condition that tripped (metric-rule alerts only); `null` for SRM/peek/guardrail alerts with no rule."
+          },
+          "metric": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OpsAlertMetricSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The metric the alert watches, hydrated with its backing event(s); `null` if not resolvable."
+          }
+        },
+        "required": [
+          "source",
+          "dedupeKey"
+        ],
+        "additionalProperties": {},
+        "description": "Detail for an `alert` ticket — the fired-alert INSTANCE this ticket is. List rows carry the stored capture subset (`source`, `dedupeKey`, `ruleId`, `detail`, `href`, `observedValue`); the single-item read hydrates the rest, resolving `severity`/`status` off the ticket itself and the rule → metric → event chain at request time."
+      },
+      "MeasurePlanResource": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "metric",
+              "experiment",
+              "alert_rule",
+              "event"
+            ],
+            "description": "Resource kind."
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Resource id when it was created; absent/`null` for resources still to be made."
+          },
+          "name": {
+            "type": "string",
+            "description": "Resource name."
+          }
+        },
+        "required": [
+          "kind",
+          "name"
+        ],
+        "additionalProperties": {},
+        "description": "A resource referenced by a measurement plan."
+      },
+      "MeasurePlanStep": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The event name the instrumentation should emit, when known."
+          },
+          "attribute": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A new user attribute the project must start sending on its identify/evaluate context (when a gate's targeting needs a field that doesn't exist yet)."
+          },
+          "label": {
+            "type": "string",
+            "description": "Short human-readable name for the moment being instrumented."
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What to track and why, described conceptually — which user moment/action to capture and what it enables. Deliberately NOT a file path (the assistant has no repo access and can't name real files); you locate the call site yourself."
+          },
+          "properties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Event properties the downstream metric needs attached (e.g. `method`, `plan`)."
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "additionalProperties": {},
+        "description": "One piece of code instrumentation a measurement plan still needs."
+      },
+      "OpsMeasurePlanContext": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The customer's underlying intent in their own words — WHAT they want to learn or achieve and WHY, independent of the specific steps. The plan below is a best-effort proposal made without repo access; when the code reveals a better path, this goal is the target you optimize for, not literal step-adherence."
+          },
+          "created": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MeasurePlanResource"
+            },
+            "description": "Resources the assistant already created on approval (live now) — don't recreate them."
+          },
+          "pending": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MeasurePlanResource"
+            },
+            "description": "Resources the assistant couldn't create yet (usually a metric whose backing event isn't emitted); create these after the instrumentation lands."
+          },
+          "instrumentation": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MeasurePlanStep"
+            },
+            "description": "The code instrumentation to implement before the metrics can collect data."
+          }
+        },
+        "required": [
+          "created",
+          "instrumentation"
+        ],
+        "additionalProperties": {},
+        "description": "An assistant-proposed measurement plan: what it already built, what it still needs, and the event instrumentation you implement."
+      },
+      "OpsItemContext": {
+        "type": "object",
+        "properties": {
+          "browser": {
+            "$ref": "#/components/schemas/OpsBrowserContext"
+          },
+          "error": {
+            "$ref": "#/components/schemas/OpsErrorContext"
+          },
+          "alert": {
+            "$ref": "#/components/schemas/OpsAlertContext"
+          },
+          "measurePlan": {
+            "$ref": "#/components/schemas/OpsMeasurePlanContext"
+          },
+          "errorChart": {
+            "type": "object",
+            "properties": {
+              "series": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "t": {
+                      "type": "number",
+                      "description": "Bucket start — unix epoch **milliseconds**. Bucket width scales with the window (hourly up to ~5 days, coarser beyond)."
+                    },
+                    "v": {
+                      "type": "number",
+                      "description": "Occurrence count in the bucket (sample-rate weighted)."
+                    }
+                  },
+                  "required": [
+                    "t",
+                    "v"
+                  ],
+                  "additionalProperties": {},
+                  "description": "One occurrence bucket."
+                },
+                "description": "Occurrence buckets, oldest first. Buckets with no occurrences are omitted."
+              },
+              "domainFrom": {
+                "type": "number",
+                "description": "Chart domain start — unix epoch milliseconds (the window's start)."
+              },
+              "domainTo": {
+                "type": "number",
+                "description": "Chart domain end — unix epoch milliseconds (the read time)."
+              }
+            },
+            "required": [
+              "series",
+              "domainFrom",
+              "domainTo"
+            ],
+            "additionalProperties": {},
+            "description": "Occurrence timeline for an `error` ticket — buckets over the project's error auto-close window (Settings → Errors: `errorAutocloseDays`, 7 days when auto-close is off, capped at 30) from the sampled occurrences, hydrated at read time by the single-item read only. Plotting exactly the quiet window that auto-resolves the error is what makes an empty right-hand edge meaningful. ABSENT (not `null`) on non-error tickets, on list rows (raw context), and when no occurrence landed in the window."
+          }
+        },
+        "additionalProperties": {},
+        "description": "Per-type capture context on a queue item. Exactly one of `browser` (bug/feature), `error`, `alert`, or `measurePlan` is populated depending on `type`; other keys (e.g. the AI dedupe block on bugs) may also be present."
+      },
+      "GithubPrLink": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "number",
+            "description": "Pull request number."
+          },
+          "url": {
+            "type": "string",
+            "description": "HTML URL of the linked pull request."
+          },
+          "linkedAt": {
+            "type": "string",
+            "description": "ISO-8601 timestamp the PR was linked."
+          },
+          "connectedToIssue": {
+            "type": "boolean",
+            "description": "Whether the PR was wired to the issue on GitHub (via a closing keyword or a comment)."
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "closes",
+              "comment"
+            ],
+            "description": "How the PR was connected to the issue."
+          },
+          "owner": {
+            "type": "string",
+            "description": "Repository owner (org or user) the pull request lives in. Absent on links recorded before the field existed — `url` still carries it."
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name the pull request lives in. Absent on links recorded before the field existed — `url` still carries it."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "merged",
+              "closed"
+            ],
+            "description": "Outcome of the pull request on GitHub, kept current by the `pull_request` webhook. `merged` and `closed` (closed WITHOUT merging, i.e. rejected) are terminal. Absent means the outcome has never been observed — treat it as `open`."
+          },
+          "mergedAt": {
+            "type": "string",
+            "description": "ISO-8601 timestamp the pull request merged, when `state` is `merged`."
+          },
+          "closedAt": {
+            "type": "string",
+            "description": "ISO-8601 timestamp the pull request closed unmerged, when `state` is `closed`."
+          }
+        },
+        "required": [
+          "number",
+          "url"
+        ],
+        "additionalProperties": {},
+        "description": "The pull request linked to a queue item via `link-pr` (stored on `connectorData.github.pr`)."
+      },
+      "GithubConnectorData": {
+        "type": "object",
+        "properties": {
+          "issue": {
+            "type": "object",
+            "properties": {
+              "number": {
+                "type": "number",
+                "description": "GitHub issue number."
+              },
+              "url": {
+                "type": "string",
+                "description": "HTML URL of the opened issue."
+              },
+              "owner": {
+                "type": "string",
+                "description": "Repository owner (org or user)."
+              },
+              "repo": {
+                "type": "string",
+                "description": "Repository name."
+              },
+              "createdAt": {
+                "type": "string",
+                "description": "ISO-8601 timestamp the issue was opened."
+              }
+            },
+            "required": [
+              "number",
+              "url",
+              "owner",
+              "repo"
+            ],
+            "additionalProperties": {},
+            "description": "The GitHub issue this item opened."
+          },
+          "pr": {
+            "$ref": "#/components/schemas/GithubPrLink",
+            "description": "The item's PRIMARY linked pull request, derived from `prs`: the newest still-open one, else the newest merged one, else the newest closed one. Kept for readers that show one PR; `prs` is the full list."
+          },
+          "prs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GithubPrLink"
+            },
+            "description": "Every pull request linked to the item, oldest link first — an item can legitimately take several PRs (a fix split across repos, a follow-up). Absent on items linked before multi-PR support; `pr` then is the only one."
+          }
+        },
+        "additionalProperties": {},
+        "description": "GitHub connector trace — the issue it opened and, once linked, the pull requests."
+      },
+      "SlackConnectorData": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "object",
+            "properties": {
+              "channel": {
+                "type": "string",
+                "description": "Slack channel id the message was posted to."
+              },
+              "ts": {
+                "type": "string",
+                "description": "Slack message timestamp (`ts`) — the message handle used for in-place `chat.update`."
+              },
+              "postedAt": {
+                "type": "string",
+                "description": "ISO-8601 timestamp the message was posted."
+              }
+            },
+            "required": [
+              "channel",
+              "ts"
+            ],
+            "additionalProperties": {},
+            "description": "The Slack message the driver posted for this item."
+          }
+        },
+        "additionalProperties": {},
+        "description": "Slack connector trace — the message the driver posted for this item. The linked pull request is recorded on `github.pr`, not here."
+      },
+      "ConnectorData": {
+        "type": "object",
+        "properties": {
+          "github": {
+            "$ref": "#/components/schemas/GithubConnectorData"
+          },
+          "slack": {
+            "$ref": "#/components/schemas/SlackConnectorData"
+          }
+        },
+        "additionalProperties": {},
+        "description": "Connector linkage for one queue item, keyed by provider. Each provider's driver deep-merges its own trace into this blob, so any subset of providers may be present. Unknown/future providers may appear as additional keys."
       },
       "NotificationTarget": {
         "anyOf": [
@@ -871,6 +1867,597 @@
           }
         ],
         "description": "Delivery target for a notification; `null` = use the project default."
+      },
+      "OpsItemOwner": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "The `users.id` of the assigned person (what `assigneeId` stores)."
+                  },
+                  "email": {
+                    "type": "string",
+                    "description": "The person's email."
+                  },
+                  "name": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The person's display name, or `null` when none is set."
+                  }
+                },
+                "required": [
+                  "id",
+                  "email",
+                  "name"
+                ],
+                "additionalProperties": false,
+                "description": "The resolved person owner."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The PERSON half of the owner (resolved from `assigneeId`), or `null` when no person is assigned."
+          },
+          "agent": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "connectorId": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The `connectors` row id for a connector-backed agent; `null` for the built-in one."
+                  },
+                  "builtin": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "jarvis"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The built-in-agent key (`jarvis`) when this is the hosted Shipeasy agent; `null` for a connector-backed one."
+                  },
+                  "provider": {
+                    "type": "string",
+                    "enum": [
+                      "claude_trigger",
+                      "cursor_trigger",
+                      "copilot_trigger",
+                      "jules_trigger",
+                      "jarvis"
+                    ],
+                    "description": "The trigger-connector provider backing this agent, or `jarvis` for the built-in hosted agent."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Display name — the connector's `name`, the provider default (e.g. \"Claude\"), or \"Jarvis\"."
+                  }
+                },
+                "required": [
+                  "connectorId",
+                  "builtin",
+                  "provider",
+                  "name"
+                ],
+                "additionalProperties": false,
+                "description": "The resolved agent owner. Exactly one of `connectorId` / `builtin` is set."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The AGENT half of the owner (resolved from `assigneeConnectorId` / `assigneeAgent`), or `null` when no agent is assigned."
+          }
+        },
+        "required": [
+          "user",
+          "agent"
+        ],
+        "additionalProperties": false,
+        "description": "The fully-resolved owner of a queue item — a person and/or an AI agent. The two halves are independent: an item may have a person, an agent, both, or neither (both `null`)."
+      },
+      "OpsRunAction": {
+        "type": "string",
+        "enum": [
+          "link_pr",
+          "notify",
+          "status",
+          "superseded"
+        ],
+        "description": "The final action that closed a run record — `link_pr`/`notify` are the agent's terminal ops actions, `status` a completion status flip (ready_for_qa/resolved), `superseded` a newer ack replacing an open run."
+      },
+      "OpsRunActionOrNull": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/OpsRunAction"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "Which final action closed the run, or `null` while it is open (or a non-run record)."
+      },
+      "OpsRun": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Run record id."
+          },
+          "agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The AI agent type working the run (`jarvis` | `claude` | `cursor` | `copilot` | `jules`); `null` for a human ack."
+          },
+          "connectorId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The trigger-connector row id backing the acking agent; `null` for a human ack or the built-in Jarvis agent."
+          },
+          "ackedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Email of the human who acked; `null` for an AI ack."
+          },
+          "sessionId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent-run session id recorded on the ack (dashboard deep-links to the run page), or `null`."
+          },
+          "sessionUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run's session-page deep link, or `null`. DERIVED (never stored): rebuilt from `sessionId` + the run's trigger connector — Claude's routine id (`?trigger=`), Copilot's repo (`/tasks/`), Cursor/Jules from the id alone."
+          },
+          "startedAt": {
+            "type": "string",
+            "description": "ISO-8601 timestamp the run started (the ack time)."
+          },
+          "completedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO-8601 timestamp the run closed, or `null` while still open."
+          },
+          "completedAction": {
+            "$ref": "#/components/schemas/OpsRunActionOrNull"
+          },
+          "prNumber": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The PR the run linked as its final action, or `null`."
+          },
+          "prUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "HTML URL of that PR, or `null`."
+          }
+        },
+        "required": [
+          "id",
+          "agent",
+          "connectorId",
+          "ackedBy",
+          "sessionId",
+          "sessionUrl",
+          "startedAt",
+          "completedAt",
+          "completedAction",
+          "prNumber",
+          "prUrl"
+        ],
+        "additionalProperties": false,
+        "description": "One run on a queue item — who (person or AI agent) picked it up when, and, once closed, how it ended (final action + PR + session link). Opened by `POST /api/admin/ops/{handle}/ack`."
+      },
+      "ListOpsItemsResponse": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Stable opaque item id."
+            },
+            "number": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Per-project item number (the `#7` handle), or `null` if unnumbered."
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "bug",
+                "feature_request",
+                "error",
+                "alert",
+                "measure_plan"
+              ],
+              "description": "Queue item type. `bug` and `feature_request` are user-fileable; `error`, `alert`, and `measure_plan` tickets are auto-filed by the platform (a tracked production error, a metric-threshold alert, and an assistant-proposed measurement plan respectively)."
+            },
+            "title": {
+              "type": "string",
+              "description": "One-line item title."
+            },
+            "status": {
+              "$ref": "#/components/schemas/OpsItemStatus"
+            },
+            "priority": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OpsItemPriority"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Triage priority, or `null` if not yet set."
+            },
+            "sourceRef": {
+              "description": "Source reference for auto-filed tickets (e.g. an error fingerprint).",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "investigationState": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OpsInvestigationState"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Where automation has taken this item in the investigation lifecycle (see `OpsInvestigationState`). Optional — absent/`null` on rows filed before the field existed; derive from `status`/`type` in that case."
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "team",
+                "system"
+              ],
+              "description": "How the item was filed: `team` (a human admin/teammate — bug/feature) or `system` (auto-filed — error/alert/measure_plan)."
+            },
+            "reporterEmail": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Reporter email (bug/feature), or `null`."
+            },
+            "stepsToReproduce": {
+              "type": "string",
+              "description": "Reproduction steps — populated for `bug`, empty string otherwise."
+            },
+            "actualResult": {
+              "type": "string",
+              "description": "What actually happened — `bug` only, empty string otherwise."
+            },
+            "expectedResult": {
+              "type": "string",
+              "description": "What was expected — `bug` only, empty string otherwise."
+            },
+            "description": {
+              "type": "string",
+              "description": "Feature description — populated for `feature_request`, empty string otherwise."
+            },
+            "useCase": {
+              "type": "string",
+              "description": "Feature use case — `feature_request` only, empty string otherwise."
+            },
+            "context": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OpsItemContext"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The RAW stored capture context on the row — NOT hydrated: list rows carry only what was captured at file time (e.g. `context.browser` for bug/feature, the trigger subset for auto-filed tickets). The live `error`/`alert` readings and `errorChart` are added only by the single-item read (`GET /api/admin/ops/{handle}`). `null` when nothing was captured."
+            },
+            "connectorData": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ConnectorData"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Per-connector linkage recorded for this item, keyed by connector provider. `null` if no connector has touched the item."
+            },
+            "notify": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/NotificationTarget"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Per-item completion-notification target, or `null` (falls back to the project default)."
+            },
+            "assigneeId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The PERSON owner — a `users.id` (resolved into `owner.user`), or `null` when unassigned."
+            },
+            "assigneeConnectorId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The AGENT owner when it is a connected trigger connector — a `connectors` row id (resolved into `owner.agent`), or `null`. Mutually exclusive with `assigneeAgent`."
+            },
+            "assigneeAgent": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The AGENT owner when it is a built-in hosted Shipeasy agent — currently only `jarvis` — or `null`. Mutually exclusive with `assigneeConnectorId`."
+            },
+            "owner": {
+              "$ref": "#/components/schemas/OpsItemOwner"
+            },
+            "run": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OpsRun"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The currently OPEN run on this item (someone acked it and is actively working — the cockpit's live working indicator), or `null` when nothing is in flight."
+            },
+            "lastRun": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OpsRun"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The most recently COMPLETED run (the run result — final action, PR, duration), excluding superseded runs; `null` when no run has completed yet."
+            },
+            "createdAt": {
+              "type": "string",
+              "description": "ISO-8601 creation timestamp."
+            },
+            "updatedAt": {
+              "type": "string",
+              "description": "ISO-8601 last-update timestamp."
+            },
+            "closedAt": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO-8601 timestamp the item was closed (`resolved` or `wont_fix`), or `null` while it is open."
+            }
+          },
+          "required": [
+            "id",
+            "number",
+            "type",
+            "title",
+            "status",
+            "priority",
+            "source",
+            "owner",
+            "run",
+            "lastRun",
+            "createdAt",
+            "updatedAt",
+            "closedAt"
+          ],
+          "additionalProperties": {},
+          "description": "One queue item — any type — plus its resolved `owner` and run state."
+        },
+        "description": "A page of queue items, newest first."
+      },
+      "ErrorCode": {
+        "type": "string",
+        "description": "Stable, machine-readable error code. Mirrors the `ErrorCode` catalogue in `@shipeasy/core`. Each operation lists the subset it can return under `x-error-codes`.",
+        "enum": [
+          "BAD_REQUEST",
+          "UNAUTHORIZED",
+          "FORBIDDEN",
+          "PLAN_REQUIRED",
+          "NOT_FOUND",
+          "ALREADY_EXISTS",
+          "INVALID_TRANSITION",
+          "IMMUTABLE_FIELD",
+          "READ_ONLY",
+          "REFERENCED_IN_USE",
+          "VALIDATION",
+          "REFERENCED_NOT_FOUND",
+          "GROUPS_WEIGHT_SUM",
+          "EVENT_PENDING",
+          "INTERNAL",
+          "PLAN_LIMIT",
+          "EXPERIMENT_NO_GOAL_METRIC",
+          "EXPERIMENT_ARCHIVED_RESTART",
+          "EXPERIMENT_RESTORE_INVALID",
+          "EXPERIMENT_NOT_RUNNING",
+          "EXPERIMENT_RUNNING_ARCHIVE",
+          "EXPERIMENT_IMMUTABLE_FIELD",
+          "METRIC_NOT_FOUND",
+          "METRIC_UNKNOWN_ID",
+          "AGENT_NOT_CONNECTED"
+        ],
+        "x-enum-descriptions": {
+          "BAD_REQUEST": "Malformed request (bad JSON, missing project scope).",
+          "UNAUTHORIZED": "Missing or invalid admin SDK key.",
+          "FORBIDDEN": "Key is valid but not allowed to act on this project.",
+          "PLAN_REQUIRED": "The requested feature requires a higher plan tier (e.g. sequential testing, custom alpha, holdout, group count).",
+          "NOT_FOUND": "The resource does not exist or is not visible to the caller.",
+          "ALREADY_EXISTS": "A resource with this name already exists in the project.",
+          "INVALID_TRANSITION": "The requested lifecycle transition is not allowed from the current state.",
+          "IMMUTABLE_FIELD": "A field that is immutable in the current state was modified (e.g. editing allocation while running).",
+          "READ_ONLY": "The resource is a read-only built-in (e.g. a built-in gate-rule template) and cannot be modified or deleted.",
+          "REFERENCED_IN_USE": "The resource cannot be archived/deleted while another resource still references it.",
+          "VALIDATION": "The request body failed structural (schema) validation.",
+          "REFERENCED_NOT_FOUND": "A referenced entity (universe, metric, gate, event) does not exist.",
+          "GROUPS_WEIGHT_SUM": "Experiment group weights must sum to 10000 (basis points).",
+          "EVENT_PENDING": "The referenced event is still pending review and cannot back a metric yet.",
+          "INTERNAL": "Unexpected server error.",
+          "PLAN_LIMIT": "The action would exceed a plan quota (e.g. the tier's maximum experiments, metrics, or configs). Upgrade the plan or archive an existing resource.",
+          "EXPERIMENT_NO_GOAL_METRIC": "The experiment has no goal metric set, which the requested action requires.",
+          "EXPERIMENT_ARCHIVED_RESTART": "An archived experiment cannot be restarted.",
+          "EXPERIMENT_RESTORE_INVALID": "The experiment cannot be restored from its current state.",
+          "EXPERIMENT_NOT_RUNNING": "The action requires the experiment to be running.",
+          "EXPERIMENT_RUNNING_ARCHIVE": "A running experiment cannot be archived — stop it first.",
+          "EXPERIMENT_IMMUTABLE_FIELD": "A field that is immutable while the experiment is running was modified.",
+          "METRIC_NOT_FOUND": "The referenced metric does not exist or is not visible to the caller.",
+          "METRIC_UNKNOWN_ID": "The supplied metric id is malformed or not recognised.",
+          "AGENT_NOT_CONNECTED": "The named AI agent type has no connected trigger connector in this project — list the available agents (`ops agents list` / `GET /api/admin/agent-profiles`) and use one of those, or connect the agent under Settings → Triggers."
+        }
+      },
+      "Error": {
+        "type": "object",
+        "description": "Uniform error envelope returned by every admin endpoint on a non-2xx status. `error` is the human-readable message; `code` is the stable machine code (present whenever the failure maps to a catalogued `ErrorCode`); `detail` carries extra context (validation paths, conflicting field); `fields` maps each failing input field to its own message; `instructions` is optional actionable guidance for resolving the error; `schema` echoes back the expected JSON Schema when a value failed schema validation.",
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Human-readable error message."
+          },
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "detail": {
+            "type": "string",
+            "description": "Extra context (validation details, conflicting field, referenced row)."
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Per-field validation messages, keyed by the submitted field's path (dot-notation for nested fields, e.g. `groups.0.weight`). Present when structural validation failed on one or more specific input fields, so a client form can attach each message to its own input instead of collapsing everything into one banner."
+          },
+          "instructions": {
+            "type": "string",
+            "description": "Actionable guidance for resolving this error — what to check or change next."
+          },
+          "schema": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "The expected JSON Schema (draft 2020-12) the submitted value must satisfy. Returned only when a value failed schema validation (e.g. a config `value` that does not match its config's saved schema), so the caller can correct the value and retry without re-fetching."
+          }
+        }
+      },
+      "TagName": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "description": "A tag name. Trimmed; matched case-insensitively against the project's existing tags."
       },
       "CreatePublicBugRequest": {
         "type": "object",
@@ -1056,101 +2643,6 @@
         ],
         "additionalProperties": false,
         "description": "Response for the public ticket intake. A fresh file returns `201` with `id` + `number`; a repeat of a report already tracked by an open ticket returns `200` with that ticket's `number` and `deduped: true` — plus `updated: true` when a `dedupKey` re-triggered it and its fields were refreshed."
-      },
-      "ErrorCode": {
-        "type": "string",
-        "description": "Stable, machine-readable error code. Mirrors the `ErrorCode` catalogue in `@shipeasy/core`. Each operation lists the subset it can return under `x-error-codes`.",
-        "enum": [
-          "BAD_REQUEST",
-          "UNAUTHORIZED",
-          "FORBIDDEN",
-          "PLAN_REQUIRED",
-          "NOT_FOUND",
-          "ALREADY_EXISTS",
-          "INVALID_TRANSITION",
-          "IMMUTABLE_FIELD",
-          "READ_ONLY",
-          "REFERENCED_IN_USE",
-          "VALIDATION",
-          "REFERENCED_NOT_FOUND",
-          "GROUPS_WEIGHT_SUM",
-          "EVENT_PENDING",
-          "INTERNAL",
-          "PLAN_LIMIT",
-          "EXPERIMENT_NO_GOAL_METRIC",
-          "EXPERIMENT_ARCHIVED_RESTART",
-          "EXPERIMENT_RESTORE_INVALID",
-          "EXPERIMENT_NOT_RUNNING",
-          "EXPERIMENT_RUNNING_ARCHIVE",
-          "EXPERIMENT_IMMUTABLE_FIELD",
-          "METRIC_NOT_FOUND",
-          "METRIC_UNKNOWN_ID",
-          "AGENT_NOT_CONNECTED"
-        ],
-        "x-enum-descriptions": {
-          "BAD_REQUEST": "Malformed request (bad JSON, missing project scope).",
-          "UNAUTHORIZED": "Missing or invalid admin SDK key.",
-          "FORBIDDEN": "Key is valid but not allowed to act on this project.",
-          "PLAN_REQUIRED": "The requested feature requires a higher plan tier (e.g. sequential testing, custom alpha, holdout, group count).",
-          "NOT_FOUND": "The resource does not exist or is not visible to the caller.",
-          "ALREADY_EXISTS": "A resource with this name already exists in the project.",
-          "INVALID_TRANSITION": "The requested lifecycle transition is not allowed from the current state.",
-          "IMMUTABLE_FIELD": "A field that is immutable in the current state was modified (e.g. editing allocation while running).",
-          "READ_ONLY": "The resource is a read-only built-in (e.g. a built-in gate-rule template) and cannot be modified or deleted.",
-          "REFERENCED_IN_USE": "The resource cannot be archived/deleted while another resource still references it.",
-          "VALIDATION": "The request body failed structural (schema) validation.",
-          "REFERENCED_NOT_FOUND": "A referenced entity (universe, metric, gate, event) does not exist.",
-          "GROUPS_WEIGHT_SUM": "Experiment group weights must sum to 10000 (basis points).",
-          "EVENT_PENDING": "The referenced event is still pending review and cannot back a metric yet.",
-          "INTERNAL": "Unexpected server error.",
-          "PLAN_LIMIT": "The action would exceed a plan quota (e.g. the tier's maximum experiments, metrics, or configs). Upgrade the plan or archive an existing resource.",
-          "EXPERIMENT_NO_GOAL_METRIC": "The experiment has no goal metric set, which the requested action requires.",
-          "EXPERIMENT_ARCHIVED_RESTART": "An archived experiment cannot be restarted.",
-          "EXPERIMENT_RESTORE_INVALID": "The experiment cannot be restored from its current state.",
-          "EXPERIMENT_NOT_RUNNING": "The action requires the experiment to be running.",
-          "EXPERIMENT_RUNNING_ARCHIVE": "A running experiment cannot be archived — stop it first.",
-          "EXPERIMENT_IMMUTABLE_FIELD": "A field that is immutable while the experiment is running was modified.",
-          "METRIC_NOT_FOUND": "The referenced metric does not exist or is not visible to the caller.",
-          "METRIC_UNKNOWN_ID": "The supplied metric id is malformed or not recognised.",
-          "AGENT_NOT_CONNECTED": "The named AI agent type has no connected trigger connector in this project — list the available agents (`ops agents list` / `GET /api/admin/agent-profiles`) and use one of those, or connect the agent under Settings → Triggers."
-        }
-      },
-      "Error": {
-        "type": "object",
-        "description": "Uniform error envelope returned by every admin endpoint on a non-2xx status. `error` is the human-readable message; `code` is the stable machine code (present whenever the failure maps to a catalogued `ErrorCode`); `detail` carries extra context (validation paths, conflicting field); `fields` maps each failing input field to its own message; `instructions` is optional actionable guidance for resolving the error; `schema` echoes back the expected JSON Schema when a value failed schema validation.",
-        "required": [
-          "error"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "error": {
-            "type": "string",
-            "description": "Human-readable error message."
-          },
-          "code": {
-            "$ref": "#/components/schemas/ErrorCode"
-          },
-          "detail": {
-            "type": "string",
-            "description": "Extra context (validation details, conflicting field, referenced row)."
-          },
-          "fields": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "description": "Per-field validation messages, keyed by the submitted field's path (dot-notation for nested fields, e.g. `groups.0.weight`). Present when structural validation failed on one or more specific input fields, so a client form can attach each message to its own input instead of collapsing everything into one banner."
-          },
-          "instructions": {
-            "type": "string",
-            "description": "Actionable guidance for resolving this error — what to check or change next."
-          },
-          "schema": {
-            "type": "object",
-            "additionalProperties": true,
-            "description": "The expected JSON Schema (draft 2020-12) the submitted value must satisfy. Returned only when a value failed schema validation (e.g. a config `value` that does not match its config's saved schema), so the caller can correct the value and retry without re-fetching."
-          }
-        }
       },
       "CreatePublicFeatureRequestRequest": {
         "type": "object",
@@ -1598,62 +3090,6 @@
           }
         }
       },
-      "PayloadTooLarge": {
-        "description": "The request body exceeded the intake's fixed size cap (16 KB).",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/Error"
-            },
-            "examples": {
-              "BAD_REQUEST": {
-                "summary": "Body too large",
-                "value": {
-                  "error": "Body too large",
-                  "code": "BAD_REQUEST"
-                }
-              }
-            }
-          }
-        }
-      },
-      "TooManyRequests": {
-        "description": "The public intake is rate-limited per (project, client IP). Back off and retry;\nthe limit is a burst guard, not a quota, so a modest delay clears it.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/Error"
-            },
-            "examples": {
-              "BAD_REQUEST": {
-                "summary": "Rate limited",
-                "value": {
-                  "error": "Too many requests",
-                  "code": "BAD_REQUEST"
-                }
-              }
-            }
-          }
-        }
-      },
-      "ServiceUnavailable": {
-        "description": "A backing store the endpoint needs is not bound in this environment. Transient\nand infrastructural — no stable `ErrorCode` is assigned, so `code` is omitted.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/Error"
-            },
-            "examples": {
-              "UNAVAILABLE": {
-                "summary": "Storage unbound",
-                "value": {
-                  "error": "Unavailable"
-                }
-              }
-            }
-          }
-        }
-      },
       "NotFound": {
         "description": "The resource does not exist or is not visible to the caller.",
         "content": {
@@ -1752,16 +3188,61 @@
             }
           }
         }
-      }
-    },
-    "parameters": {
-      "ProjectId": {
-        "name": "X-Project-Id",
-        "in": "header",
-        "required": false,
-        "description": "Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it).",
-        "schema": {
-          "type": "string"
+      },
+      "PayloadTooLarge": {
+        "description": "The request body exceeded the intake's fixed size cap (16 KB).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "examples": {
+              "BAD_REQUEST": {
+                "summary": "Body too large",
+                "value": {
+                  "error": "Body too large",
+                  "code": "BAD_REQUEST"
+                }
+              }
+            }
+          }
+        }
+      },
+      "TooManyRequests": {
+        "description": "The public intake is rate-limited per (project, client IP). Back off and retry;\nthe limit is a burst guard, not a quota, so a modest delay clears it.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "examples": {
+              "BAD_REQUEST": {
+                "summary": "Rate limited",
+                "value": {
+                  "error": "Too many requests",
+                  "code": "BAD_REQUEST"
+                }
+              }
+            }
+          }
+        }
+      },
+      "ServiceUnavailable": {
+        "description": "A backing store the endpoint needs is not bound in this environment. Transient\nand infrastructural — no stable `ErrorCode` is assigned, so `code` is omitted.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "examples": {
+              "UNAVAILABLE": {
+                "summary": "Storage unbound",
+                "value": {
+                  "error": "Unavailable"
+                }
+              }
+            }
+          }
         }
       }
     }

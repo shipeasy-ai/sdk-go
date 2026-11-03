@@ -1,7 +1,7 @@
 /*
 Shipeasy Admin API (server-SDK surface)
 
-The slice of the Shipeasy admin API that the published server SDKs expose as their optional `AdminClient`. Authenticate with an admin SDK key (`Authorization: Bearer sdk_admin_…`) and scope every request to a project via the `X-Project-Id` header.  Three capabilities, nothing else:  - **File a public ticket** — a bug or a feature request onto the project's ops queue. - **Toggle a kill switch** — flip the switch itself, or one of its named sub-switches, on one environment. - **Manage a flag's whitelist** — read, replace, add to, or remove from the allowlist that admits specific identities ahead of every targeting rule.  Everything else in the admin API is reachable through the Shipeasy CLI and MCP server, which speak the complete contract (`openapi.yaml`).
+The slice of the Shipeasy admin API that the published server SDKs expose as their optional `AdminClient`. Authenticate with an admin SDK key (`Authorization: Bearer sdk_admin_…`) and scope every request to a project via the `X-Project-Id` header.  Four capabilities, nothing else:  - **List the ops queue** — read the project's tickets, filtered by type, status, priority, owner, reporter (`reporter`) and close time (`closedSince`). - **File a public ticket** — a bug or a feature request onto the project's ops queue. - **Toggle a kill switch** — flip the switch itself, or one of its named sub-switches, on one environment. - **Manage a flag's whitelist** — read, replace, add to, or remove from the allowlist that admits specific identities ahead of every targeting rule.  Everything else in the admin API is reachable through the Shipeasy CLI and MCP server, which speak the complete contract (`openapi.yaml`).
 
 API version: 2.0.0
 */
@@ -56,7 +56,7 @@ Adding to a gate that already has a whitelist keyed on the other attribute is re
 **Use case:** Let one more customer into a private beta without reading the current list first.
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @param id Stable opaque gate id (`gate_…`) or the gate's `name`.
+ @param id Stable opaque gate id (`gat_…`) or the gate's `name`.
  @return ApiAddToGateWhitelistRequest
 */
 func (a *FlagsAPIService) AddToGateWhitelist(ctx context.Context, id string) ApiAddToGateWhitelistRequest {
@@ -249,7 +249,7 @@ A gate with no whitelist returns `entries: []` (and the default `attr`), never a
 **Use case:** Check whether an account is already let through before adding it.
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @param id Stable opaque gate id (`gate_…`) or the gate's `name`.
+ @param id Stable opaque gate id (`gat_…`) or the gate's `name`.
  @return ApiGetGateWhitelistRequest
 */
 func (a *FlagsAPIService) GetGateWhitelist(ctx context.Context, id string) ApiGetGateWhitelistRequest {
@@ -443,7 +443,7 @@ Removing the last entry leaves an empty whitelist block in place; to drop the bl
 **Use case:** Revoke one beta tester's access without touching anyone else's.
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @param id Stable opaque gate id (`gate_…`) or the gate's `name`.
+ @param id Stable opaque gate id (`gat_…`) or the gate's `name`.
  @return ApiRemoveFromGateWhitelistRequest
 */
 func (a *FlagsAPIService) RemoveFromGateWhitelist(ctx context.Context, id string) ApiRemoveFromGateWhitelistRequest {
@@ -646,7 +646,7 @@ This is the only whitelist call that can switch `attr` (`email` ⇄ `user_id`) o
 - **Drop the whitelist** — `{ "entries": [] }`.
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @param id Stable opaque gate id (`gate_…`) or the gate's `name`.
+ @param id Stable opaque gate id (`gat_…`) or the gate's `name`.
  @return ApiSetGateWhitelistRequest
 */
 func (a *FlagsAPIService) SetGateWhitelist(ctx context.Context, id string) ApiSetGateWhitelistRequest {
