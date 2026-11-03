@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.23.0 — 2026-11-03
 
 - Admin API client: `ListOpsItems` — list the ops queue, with the new `reporter`
   (filer's email, case-insensitive) and `closed_since` filters; every item now
