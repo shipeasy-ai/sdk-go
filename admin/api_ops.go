@@ -1,7 +1,7 @@
 /*
-Shipeasy Admin API (server-SDK surface)
+Shipeasy Admin API
 
-The slice of the Shipeasy admin API that the published server SDKs expose as their optional `AdminClient`. Authenticate with an admin SDK key (`Authorization: Bearer sdk_admin_…`) and scope every request to a project via the `X-Project-Id` header.  Four capabilities, nothing else:  - **List the ops queue** — read the project's tickets, filtered by type, status, priority, owner, reporter (`reporter`) and close time (`closedSince`). - **File a public ticket** — a bug or a feature request onto the project's ops queue. - **Toggle a kill switch** — flip the switch itself, or one of its named sub-switches, on one environment. - **Manage a flag's whitelist** — read, replace, add to, or remove from the allowlist that admits specific identities ahead of every targeting rule.  Everything else in the admin API is reachable through the Shipeasy CLI and MCP server, which speak the complete contract (`openapi.yaml`).
+REST API for managing feature gates, experiments, configs, universes, and killswitches in a Shipeasy project. Authenticate with an admin SDK key (`Authorization: Bearer sdk_admin_…`) and scope every request to a project via the `X-Project-Id` header.  Mint admin keys via `POST /api/admin/keys` with `type: \"admin\"`. Keys expire after 90 days; rotate with the `revoke` action.
 
 API version: 2.0.0
 */
@@ -16,12 +16,433 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
 
 // OpsAPIService OpsAPI service
 type OpsAPIService service
+
+type ApiAckOpsItemRequest struct {
+	ctx context.Context
+	ApiService *OpsAPIService
+	handle string
+	xProjectId *string
+	ackOpsItemRequest *AckOpsItemRequest
+}
+
+// Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it).
+func (r ApiAckOpsItemRequest) XProjectId(xProjectId string) ApiAckOpsItemRequest {
+	r.xProjectId = &xProjectId
+	return r
+}
+
+func (r ApiAckOpsItemRequest) AckOpsItemRequest(ackOpsItemRequest AckOpsItemRequest) ApiAckOpsItemRequest {
+	r.ackOpsItemRequest = &ackOpsItemRequest
+	return r
+}
+
+func (r ApiAckOpsItemRequest) Execute() (*AckOpsItemResponse, *http.Response, error) {
+	return r.ApiService.AckOpsItemExecute(r)
+}
+
+/*
+AckOpsItem Ack an item (start a run)
+
+Acknowledge a queue item — a person or an AI agent declaring "I'm on this
+now". Opens a run: stamps who picked the item up and when, assigns them as
+owner, and moves the item into the matching working status
+(`investigating_by_ai` for an AI ack, `in_progress` for a human one). The
+dashboard renders the open run as a live working indicator (which agent +
+time since the run started).
+
+**AI ack.** Pass `agent` with your own agent type (`claude`, `cursor`,
+`copilot`, `jules`; `gemini` is also accepted and is normalized to `jules` on receipt) and, when you have one, the
+run's `sessionId` so the dashboard can deep-link to the session. If the
+project has no connected trigger connector of that type the call fails
+with `AGENT_NOT_CONNECTED` — list the available agents with `ops agents
+list` and use one of those (or connect the agent under Settings →
+Triggers).
+
+**Launching.** When the named agent has a connected trigger and you pass
+no `sessionId`, the ack also fires that trigger — a new provider run
+starts working the item. Pass `launch: false` to only claim the item and
+record the run (you are doing the work yourself), without starting one.
+A launch on an item linked to others (see `group` on `ops get`) is only
+allowed on the group's master — any other member answers `409`
+`INVALID_TRANSITION`, naming the master to ack instead.
+
+**Completion.** The run closes automatically on the loop's final actions —
+linking the fixing PR (`link-pr`), an ops-notify escalation, or a
+completion status change (`ready_for_qa`/`resolved`) — and the dashboard
+then shows the run result (final action, PR, duration, session link).
+
+**One session per item.** An AI ack on an item whose open run belongs to
+another live agent session answers `409` `ALREADY_EXISTS`, naming that
+run — skip the item, the other session is working it. Your own run is
+adopted, not refused: re-ack with its `runId` (a fired run's prompt names
+it; a previous ack returned it) or the same `sessionId`. A run a trigger
+fire claimed is adopted by the FIRST session to ack it. A run silent past
+the stuck-run threshold (6h), or `takeover: true`, is superseded instead.
+A human ack never replaces an open agent run.
+
+**Use case:** Call this first when picking an item up, so the team sees
+who/what is working on it in real time.
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param handle Per-project item number (e.g. `7`) or the full ops item id.
+ @return ApiAckOpsItemRequest
+*/
+func (a *OpsAPIService) AckOpsItem(ctx context.Context, handle string) ApiAckOpsItemRequest {
+	return ApiAckOpsItemRequest{
+		ApiService: a,
+		ctx: ctx,
+		handle: handle,
+	}
+}
+
+// Execute executes the request
+//  @return AckOpsItemResponse
+func (a *OpsAPIService) AckOpsItemExecute(r ApiAckOpsItemRequest) (*AckOpsItemResponse, *http.Response, error) {
+	var (
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *AckOpsItemResponse
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "OpsAPIService.AckOpsItem")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/admin/ops/{handle}/ack"
+	localVarPath = strings.Replace(localVarPath, "{"+"handle"+"}", url.PathEscape(parameterValueToString(r.handle, "handle")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if strlen(r.handle) < 1 {
+		return localVarReturnValue, nil, reportError("handle must have at least 1 elements")
+	}
+	if strlen(r.handle) > 128 {
+		return localVarReturnValue, nil, reportError("handle must have less than 128 elements")
+	}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{"application/json"}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	if r.xProjectId != nil {
+		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-Project-Id", r.xProjectId, "simple", "")
+	}
+	// body params
+	localVarPostBody = r.ackOpsItemRequest
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 401 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 409 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 422 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type ApiCreateOpsItemRequest struct {
+	ctx context.Context
+	ApiService *OpsAPIService
+	createOpsItemRequest *CreateOpsItemRequest
+	xProjectId *string
+}
+
+func (r ApiCreateOpsItemRequest) CreateOpsItemRequest(createOpsItemRequest CreateOpsItemRequest) ApiCreateOpsItemRequest {
+	r.createOpsItemRequest = &createOpsItemRequest
+	return r
+}
+
+// Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it).
+func (r ApiCreateOpsItemRequest) XProjectId(xProjectId string) ApiCreateOpsItemRequest {
+	r.xProjectId = &xProjectId
+	return r
+}
+
+func (r ApiCreateOpsItemRequest) Execute() (*CreateOpsItemResponse, *http.Response, error) {
+	return r.ApiService.CreateOpsItemExecute(r)
+}
+
+/*
+CreateOpsItem File a queue item
+
+Files one queue item — a bug report or a feature request — and fires the project's connectors (GitHub issue / Slack). `type` selects which; only the two user-fileable types are accepted (`error`/`alert` tickets are auto-filed by the platform). Returns the new id and per-project number.
+
+**Use cases**
+
+- **File a bug** — `{ "type": "bug", "title": "Checkout 500s on Safari", "stepsToReproduce": "…" }`.
+- **File a feature request** — `{ "type": "feature_request", "title": "Dark mode", "priority": "nice_to_have" }`.
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @return ApiCreateOpsItemRequest
+*/
+func (a *OpsAPIService) CreateOpsItem(ctx context.Context) ApiCreateOpsItemRequest {
+	return ApiCreateOpsItemRequest{
+		ApiService: a,
+		ctx: ctx,
+	}
+}
+
+// Execute executes the request
+//  @return CreateOpsItemResponse
+func (a *OpsAPIService) CreateOpsItemExecute(r ApiCreateOpsItemRequest) (*CreateOpsItemResponse, *http.Response, error) {
+	var (
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *CreateOpsItemResponse
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "OpsAPIService.CreateOpsItem")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/admin/ops"
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if r.createOpsItemRequest == nil {
+		return localVarReturnValue, nil, reportError("createOpsItemRequest is required and must be specified")
+	}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{"application/json"}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	if r.xProjectId != nil {
+		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-Project-Id", r.xProjectId, "simple", "")
+	}
+	// body params
+	localVarPostBody = r.createOpsItemRequest
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 401 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 409 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 422 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
 
 type ApiCreatePublicBugRequest struct {
 	ctx context.Context
@@ -421,6 +842,593 @@ func (a *OpsAPIService) CreatePublicFeatureRequestExecute(r ApiCreatePublicFeatu
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
+type ApiDeleteOpsItemRequest struct {
+	ctx context.Context
+	ApiService *OpsAPIService
+	handle string
+	xProjectId *string
+}
+
+// Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it).
+func (r ApiDeleteOpsItemRequest) XProjectId(xProjectId string) ApiDeleteOpsItemRequest {
+	r.xProjectId = &xProjectId
+	return r
+}
+
+func (r ApiDeleteOpsItemRequest) Execute() (*DeleteOpsItemResponse, *http.Response, error) {
+	return r.ApiService.DeleteOpsItemExecute(r)
+}
+
+/*
+DeleteOpsItem Delete a queue item
+
+Permanently delete a queue item — any type — along with its comment thread, attachments, tags, and investigation records. A human (dashboard) action: the route is never allow-listed for restricted ops keys. Irreversible; to take an item out of the queue without destroying it, set its status (`wont_fix`/`resolved`) instead.
+
+**Use case:** Remove a junk or duplicate report for good.
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param handle Per-project item number (e.g. `7`) or the full ops item id.
+ @return ApiDeleteOpsItemRequest
+*/
+func (a *OpsAPIService) DeleteOpsItem(ctx context.Context, handle string) ApiDeleteOpsItemRequest {
+	return ApiDeleteOpsItemRequest{
+		ApiService: a,
+		ctx: ctx,
+		handle: handle,
+	}
+}
+
+// Execute executes the request
+//  @return DeleteOpsItemResponse
+func (a *OpsAPIService) DeleteOpsItemExecute(r ApiDeleteOpsItemRequest) (*DeleteOpsItemResponse, *http.Response, error) {
+	var (
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *DeleteOpsItemResponse
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "OpsAPIService.DeleteOpsItem")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/admin/ops/{handle}"
+	localVarPath = strings.Replace(localVarPath, "{"+"handle"+"}", url.PathEscape(parameterValueToString(r.handle, "handle")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if strlen(r.handle) < 1 {
+		return localVarReturnValue, nil, reportError("handle must have at least 1 elements")
+	}
+	if strlen(r.handle) > 128 {
+		return localVarReturnValue, nil, reportError("handle must have less than 128 elements")
+	}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	if r.xProjectId != nil {
+		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-Project-Id", r.xProjectId, "simple", "")
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 401 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 409 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 422 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type ApiGetOpsItemRequest struct {
+	ctx context.Context
+	ApiService *OpsAPIService
+	handle string
+	xProjectId *string
+	include *string
+}
+
+// Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it).
+func (r ApiGetOpsItemRequest) XProjectId(xProjectId string) ApiGetOpsItemRequest {
+	r.xProjectId = &xProjectId
+	return r
+}
+
+// &#x60;linked&#x60; inlines the content of every other member of the item&#39;s link group as &#x60;linkedItems&#x60;.
+func (r ApiGetOpsItemRequest) Include(include string) ApiGetOpsItemRequest {
+	r.include = &include
+	return r
+}
+
+func (r ApiGetOpsItemRequest) Execute() (*GetOpsItemResponse, *http.Response, error) {
+	return r.ApiService.GetOpsItemExecute(r)
+}
+
+/*
+GetOpsItem Get one queue item
+
+Fetch a single queue item by its per-project `number` or full id.
+
+An item linked to others (blocked by / blocking / duplicate of) carries its `group`: every connected item, and the `master` agent runs work through. Pass `include=linked` to inline the other members' content as `linkedItems`, so one call reads the whole group.
+
+**Use cases**
+
+- **Inspect one item** before updating its status or linking a PR.
+- **Pick up linked work** — `include=linked` reads the master and everything tied to it before a run starts.
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param handle Per-project item number (e.g. `7`) or the full ops item id.
+ @return ApiGetOpsItemRequest
+*/
+func (a *OpsAPIService) GetOpsItem(ctx context.Context, handle string) ApiGetOpsItemRequest {
+	return ApiGetOpsItemRequest{
+		ApiService: a,
+		ctx: ctx,
+		handle: handle,
+	}
+}
+
+// Execute executes the request
+//  @return GetOpsItemResponse
+func (a *OpsAPIService) GetOpsItemExecute(r ApiGetOpsItemRequest) (*GetOpsItemResponse, *http.Response, error) {
+	var (
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *GetOpsItemResponse
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "OpsAPIService.GetOpsItem")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/admin/ops/{handle}"
+	localVarPath = strings.Replace(localVarPath, "{"+"handle"+"}", url.PathEscape(parameterValueToString(r.handle, "handle")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if strlen(r.handle) < 1 {
+		return localVarReturnValue, nil, reportError("handle must have at least 1 elements")
+	}
+	if strlen(r.handle) > 128 {
+		return localVarReturnValue, nil, reportError("handle must have less than 128 elements")
+	}
+
+	if r.include != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "include", r.include, "form", "")
+	}
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	if r.xProjectId != nil {
+		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-Project-Id", r.xProjectId, "simple", "")
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 401 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 409 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 422 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type ApiLinkPrToOpsItemRequest struct {
+	ctx context.Context
+	ApiService *OpsAPIService
+	handle string
+	linkPrToOpsItemRequest *LinkPrToOpsItemRequest
+	xProjectId *string
+}
+
+func (r ApiLinkPrToOpsItemRequest) LinkPrToOpsItemRequest(linkPrToOpsItemRequest LinkPrToOpsItemRequest) ApiLinkPrToOpsItemRequest {
+	r.linkPrToOpsItemRequest = &linkPrToOpsItemRequest
+	return r
+}
+
+// Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it).
+func (r ApiLinkPrToOpsItemRequest) XProjectId(xProjectId string) ApiLinkPrToOpsItemRequest {
+	r.xProjectId = &xProjectId
+	return r
+}
+
+func (r ApiLinkPrToOpsItemRequest) Execute() (*LinkPrToOpsItemResponse, *http.Response, error) {
+	return r.ApiService.LinkPrToOpsItemExecute(r)
+}
+
+/*
+LinkPrToOpsItem Link a fixing PR
+
+Record a pull request that fixes a queue item. An item can carry several
+PRs: each call ADDS one (re-linking a linked PR is a no-op), `unlink: true`
+removes one, and `prNumber: null` clears them all. `connectorData.github.prs`
+lists them; `github.pr` is the primary one (newest open, else newest merged).
+
+**Use case:** Tie the fixing PR to the item so closing the PR can flip it to ready_for_qa.
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param handle Per-project item number (e.g. `7`) or the full ops item id.
+ @return ApiLinkPrToOpsItemRequest
+*/
+func (a *OpsAPIService) LinkPrToOpsItem(ctx context.Context, handle string) ApiLinkPrToOpsItemRequest {
+	return ApiLinkPrToOpsItemRequest{
+		ApiService: a,
+		ctx: ctx,
+		handle: handle,
+	}
+}
+
+// Execute executes the request
+//  @return LinkPrToOpsItemResponse
+func (a *OpsAPIService) LinkPrToOpsItemExecute(r ApiLinkPrToOpsItemRequest) (*LinkPrToOpsItemResponse, *http.Response, error) {
+	var (
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *LinkPrToOpsItemResponse
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "OpsAPIService.LinkPrToOpsItem")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/admin/ops/{handle}/link-pr"
+	localVarPath = strings.Replace(localVarPath, "{"+"handle"+"}", url.PathEscape(parameterValueToString(r.handle, "handle")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if strlen(r.handle) < 1 {
+		return localVarReturnValue, nil, reportError("handle must have at least 1 elements")
+	}
+	if strlen(r.handle) > 128 {
+		return localVarReturnValue, nil, reportError("handle must have less than 128 elements")
+	}
+	if r.linkPrToOpsItemRequest == nil {
+		return localVarReturnValue, nil, reportError("linkPrToOpsItemRequest is required and must be specified")
+	}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{"application/json"}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	if r.xProjectId != nil {
+		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-Project-Id", r.xProjectId, "simple", "")
+	}
+	// body params
+	localVarPostBody = r.linkPrToOpsItemRequest
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 401 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 409 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 422 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
 type ApiListOpsItemsRequest struct {
 	ctx context.Context
 	ApiService *OpsAPIService
@@ -627,6 +1635,790 @@ func (a *OpsAPIService) ListOpsItemsExecute(r ApiListOpsItemsRequest) ([]ListOps
 	if r.xProjectId != nil {
 		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-Project-Id", r.xProjectId, "simple", "")
 	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 401 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 409 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 422 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type ApiNotifyOpsRequest struct {
+	ctx context.Context
+	ApiService *OpsAPIService
+	notifyOpsRequest *NotifyOpsRequest
+	xProjectId *string
+}
+
+func (r ApiNotifyOpsRequest) NotifyOpsRequest(notifyOpsRequest NotifyOpsRequest) ApiNotifyOpsRequest {
+	r.notifyOpsRequest = &notifyOpsRequest
+	return r
+}
+
+// Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it).
+func (r ApiNotifyOpsRequest) XProjectId(xProjectId string) ApiNotifyOpsRequest {
+	r.xProjectId = &xProjectId
+	return r
+}
+
+func (r ApiNotifyOpsRequest) Execute() (*NotifyOpsResponse, *http.Response, error) {
+	return r.ApiService.NotifyOpsExecute(r)
+}
+
+/*
+NotifyOps Raise an attention notification
+
+Raise a 'needs your attention' bell notification. Create-only and idempotent on `dedupeKey` — re-raising with the same key updates the one card instead of stacking duplicates. It never reads, marks read, or deletes the feed, so it is safe for restricted ops keys.
+
+**Use case:** Escalate work that can't land in code (a product decision, a credential only a human has, a resource only a human may edit), deduped so repeats don't spam the bell.
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @return ApiNotifyOpsRequest
+*/
+func (a *OpsAPIService) NotifyOps(ctx context.Context) ApiNotifyOpsRequest {
+	return ApiNotifyOpsRequest{
+		ApiService: a,
+		ctx: ctx,
+	}
+}
+
+// Execute executes the request
+//  @return NotifyOpsResponse
+func (a *OpsAPIService) NotifyOpsExecute(r ApiNotifyOpsRequest) (*NotifyOpsResponse, *http.Response, error) {
+	var (
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *NotifyOpsResponse
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "OpsAPIService.NotifyOps")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/admin/notifications"
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if r.notifyOpsRequest == nil {
+		return localVarReturnValue, nil, reportError("notifyOpsRequest is required and must be specified")
+	}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{"application/json"}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	if r.xProjectId != nil {
+		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-Project-Id", r.xProjectId, "simple", "")
+	}
+	// body params
+	localVarPostBody = r.notifyOpsRequest
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 401 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 409 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 422 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type ApiUpdateOpsGroupRequest struct {
+	ctx context.Context
+	ApiService *OpsAPIService
+	handle string
+	updateOpsGroupRequest *UpdateOpsGroupRequest
+	xProjectId *string
+}
+
+func (r ApiUpdateOpsGroupRequest) UpdateOpsGroupRequest(updateOpsGroupRequest UpdateOpsGroupRequest) ApiUpdateOpsGroupRequest {
+	r.updateOpsGroupRequest = &updateOpsGroupRequest
+	return r
+}
+
+// Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it).
+func (r ApiUpdateOpsGroupRequest) XProjectId(xProjectId string) ApiUpdateOpsGroupRequest {
+	r.xProjectId = &xProjectId
+	return r
+}
+
+func (r ApiUpdateOpsGroupRequest) Execute() (*OpsItemGroupResponse, *http.Response, error) {
+	return r.ApiService.UpdateOpsGroupExecute(r)
+}
+
+/*
+UpdateOpsGroup Update a linked group
+
+Applies `status` and/or `priority` to every item in this item's link group — the items tied to it, directly or through a chain, by blocked-by / blocking / duplicate-of links (see `group` on `ops get`). Each member goes through the normal item update, so activity, audit, run close-out and the error sync happen exactly as for a one-item edit. Members already in the requested state are left alone. An item with no links is a group of one.
+
+**Use cases**
+
+- **The fix landed for the whole group** — `{ "status": "resolved" }` on any member.
+- **Drop the group** — `{ "status": "wont_fix" }`.
+- **Escalate it together** — `{ "priority": "critical" }`.
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param handle Per-project item number (e.g. `7`) or the full ops item id — any member of the group.
+ @return ApiUpdateOpsGroupRequest
+*/
+func (a *OpsAPIService) UpdateOpsGroup(ctx context.Context, handle string) ApiUpdateOpsGroupRequest {
+	return ApiUpdateOpsGroupRequest{
+		ApiService: a,
+		ctx: ctx,
+		handle: handle,
+	}
+}
+
+// Execute executes the request
+//  @return OpsItemGroupResponse
+func (a *OpsAPIService) UpdateOpsGroupExecute(r ApiUpdateOpsGroupRequest) (*OpsItemGroupResponse, *http.Response, error) {
+	var (
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *OpsItemGroupResponse
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "OpsAPIService.UpdateOpsGroup")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/admin/ops/{handle}/group"
+	localVarPath = strings.Replace(localVarPath, "{"+"handle"+"}", url.PathEscape(parameterValueToString(r.handle, "handle")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if strlen(r.handle) < 1 {
+		return localVarReturnValue, nil, reportError("handle must have at least 1 elements")
+	}
+	if strlen(r.handle) > 128 {
+		return localVarReturnValue, nil, reportError("handle must have less than 128 elements")
+	}
+	if r.updateOpsGroupRequest == nil {
+		return localVarReturnValue, nil, reportError("updateOpsGroupRequest is required and must be specified")
+	}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{"application/json"}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	if r.xProjectId != nil {
+		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-Project-Id", r.xProjectId, "simple", "")
+	}
+	// body params
+	localVarPostBody = r.updateOpsGroupRequest
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 401 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 422 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type ApiUpdateOpsItemRequest struct {
+	ctx context.Context
+	ApiService *OpsAPIService
+	handle string
+	updateOpsItemRequest *UpdateOpsItemRequest
+	xProjectId *string
+}
+
+func (r ApiUpdateOpsItemRequest) UpdateOpsItemRequest(updateOpsItemRequest UpdateOpsItemRequest) ApiUpdateOpsItemRequest {
+	r.updateOpsItemRequest = &updateOpsItemRequest
+	return r
+}
+
+// Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it).
+func (r ApiUpdateOpsItemRequest) XProjectId(xProjectId string) ApiUpdateOpsItemRequest {
+	r.xProjectId = &xProjectId
+	return r
+}
+
+func (r ApiUpdateOpsItemRequest) Execute() (*UpdateOpsItemResponse, *http.Response, error) {
+	return r.ApiService.UpdateOpsItemExecute(r)
+}
+
+/*
+UpdateOpsItem Update a queue item
+
+Update a queue item. The body is validated against the item's stored type: a `bug` accepts its content fields (title, steps-to-reproduce, actual/expected result) plus `status`/`priority`/`notify` and a GitHub PR link; a `feature_request` its content (title, description, use-case) plus the same triage fields; `error`/`alert`/`measure_plan` accept `status`/`priority`/`notify` only (their content is platform-owned). Pass at least one field.
+
+Completing an `error` ticket (status `resolved` or `ready_for_qa`) also resolves the tracked error it links to; the error reopens automatically if it recurs — so completing is safe pre-deploy.
+
+**Use cases**
+
+- **Start working an item** — `{ "status": "in_progress" }`.
+- **Hand off for review** — `{ "status": "ready_for_qa" }` once the fix landed (the mode PR-based loops use).
+- **Triage** — `{ "priority": "high" }`, content edits on bug/feature items.
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param handle Per-project item number (e.g. `7`) or the full ops item id.
+ @return ApiUpdateOpsItemRequest
+*/
+func (a *OpsAPIService) UpdateOpsItem(ctx context.Context, handle string) ApiUpdateOpsItemRequest {
+	return ApiUpdateOpsItemRequest{
+		ApiService: a,
+		ctx: ctx,
+		handle: handle,
+	}
+}
+
+// Execute executes the request
+//  @return UpdateOpsItemResponse
+func (a *OpsAPIService) UpdateOpsItemExecute(r ApiUpdateOpsItemRequest) (*UpdateOpsItemResponse, *http.Response, error) {
+	var (
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *UpdateOpsItemResponse
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "OpsAPIService.UpdateOpsItem")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/admin/ops/{handle}"
+	localVarPath = strings.Replace(localVarPath, "{"+"handle"+"}", url.PathEscape(parameterValueToString(r.handle, "handle")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if strlen(r.handle) < 1 {
+		return localVarReturnValue, nil, reportError("handle must have at least 1 elements")
+	}
+	if strlen(r.handle) > 128 {
+		return localVarReturnValue, nil, reportError("handle must have less than 128 elements")
+	}
+	if r.updateOpsItemRequest == nil {
+		return localVarReturnValue, nil, reportError("updateOpsItemRequest is required and must be specified")
+	}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{"application/json"}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	if r.xProjectId != nil {
+		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-Project-Id", r.xProjectId, "simple", "")
+	}
+	// body params
+	localVarPostBody = r.updateOpsItemRequest
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 401 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 409 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 422 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type ApiUpdateOpsLinksRequest struct {
+	ctx context.Context
+	ApiService *OpsAPIService
+	handle string
+	updateOpsLinksRequest *UpdateOpsLinksRequest
+	xProjectId *string
+}
+
+func (r ApiUpdateOpsLinksRequest) UpdateOpsLinksRequest(updateOpsLinksRequest UpdateOpsLinksRequest) ApiUpdateOpsLinksRequest {
+	r.updateOpsLinksRequest = &updateOpsLinksRequest
+	return r
+}
+
+// Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it).
+func (r ApiUpdateOpsLinksRequest) XProjectId(xProjectId string) ApiUpdateOpsLinksRequest {
+	r.xProjectId = &xProjectId
+	return r
+}
+
+func (r ApiUpdateOpsLinksRequest) Execute() (*OpsItemLinksResponse, *http.Response, error) {
+	return r.ApiService.UpdateOpsLinksExecute(r)
+}
+
+/*
+UpdateOpsLinks Link related items
+
+Edits how this queue item relates to others: which items block it ("blocked by"), which items it blocks ("blocking"), and which item it duplicates ("duplicate of"). The blocker lists are incremental — already-linked or never-linked items are no-ops and every other relation is left as is; `duplicateOf` sets or (with `null`) clears the one canonical item. An item with a blocker that is not `resolved`/`wont_fix` sits in the dashboard's Blocked lane. The relations show on `ops get` as `blockedBy` / `blocking` / `duplicateOf` / `duplicates`.
+
+A link that would make an item block or duplicate itself — directly or through a chain — is rejected with `409`; an item from another project doesn't resolve (`404`). Marking an item a duplicate of a still-open item closes it as `wont_fix`; if the canonical is already `resolved`/`wont_fix` (or the item itself is already closed) its status is left alone.
+
+**Use cases**
+
+- **This item can't move until #12 lands** — `{ "addBlockedBy": ["12"] }`.
+- **Split work: this item gates #20 and #21** — `{ "addBlocking": ["20", "21"] }`.
+- **The dependency turned out not to be one** — `{ "removeBlockedBy": ["12"] }`.
+- **Same bug was filed twice** — `{ "duplicateOf": "8" }` on the newer item — it closes as `wont_fix` while #8 is open.
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param handle Per-project item number (e.g. `7`) or the full ops item id.
+ @return ApiUpdateOpsLinksRequest
+*/
+func (a *OpsAPIService) UpdateOpsLinks(ctx context.Context, handle string) ApiUpdateOpsLinksRequest {
+	return ApiUpdateOpsLinksRequest{
+		ApiService: a,
+		ctx: ctx,
+		handle: handle,
+	}
+}
+
+// Execute executes the request
+//  @return OpsItemLinksResponse
+func (a *OpsAPIService) UpdateOpsLinksExecute(r ApiUpdateOpsLinksRequest) (*OpsItemLinksResponse, *http.Response, error) {
+	var (
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *OpsItemLinksResponse
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "OpsAPIService.UpdateOpsLinks")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/admin/ops/{handle}/links"
+	localVarPath = strings.Replace(localVarPath, "{"+"handle"+"}", url.PathEscape(parameterValueToString(r.handle, "handle")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if strlen(r.handle) < 1 {
+		return localVarReturnValue, nil, reportError("handle must have at least 1 elements")
+	}
+	if strlen(r.handle) > 128 {
+		return localVarReturnValue, nil, reportError("handle must have less than 128 elements")
+	}
+	if r.updateOpsLinksRequest == nil {
+		return localVarReturnValue, nil, reportError("updateOpsLinksRequest is required and must be specified")
+	}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{"application/json"}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	if r.xProjectId != nil {
+		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-Project-Id", r.xProjectId, "simple", "")
+	}
+	// body params
+	localVarPostBody = r.updateOpsLinksRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err
