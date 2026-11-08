@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Public tickets carry the reporter's identity (`user`)
+
+`CreatePublicBugRequest` and `CreatePublicFeatureRequestRequest` take an optional
+`user` — the same user attributes you pass the SDK to evaluate flags. Shipeasy
+evaluates every flag, kill switch and running experiment for that user when the
+ticket is filed and stores what they had on as `context.reporter`, which the
+dashboard and the agent working the ticket read. `OpsItemContext` gains the
+typed `reporter` block (`OpsReporterContext`, `OpsReporterFlag`,
+`OpsReporterKillswitch`, `OpsReporterExperiment`). Additive; regenerated from the
+SDK spec.
+
 ## 0.23.0 — 2026-11-03
 
 - Admin API client: `ListOpsItems` — list the ops queue, with the new `reporter`

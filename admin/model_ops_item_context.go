@@ -23,6 +23,7 @@ type OpsItemContext struct {
 	Error *OpsErrorContext `json:"error,omitempty"`
 	Alert *OpsAlertContext `json:"alert,omitempty"`
 	MeasurePlan *OpsMeasurePlanContext `json:"measurePlan,omitempty"`
+	Reporter *OpsReporterContext `json:"reporter,omitempty"`
 	ErrorChart *OpsItemContextErrorChart `json:"errorChart,omitempty"`
 	AdditionalProperties map[string]interface{}
 }
@@ -174,6 +175,38 @@ func (o *OpsItemContext) SetMeasurePlan(v OpsMeasurePlanContext) {
 	o.MeasurePlan = &v
 }
 
+// GetReporter returns the Reporter field value if set, zero value otherwise.
+func (o *OpsItemContext) GetReporter() OpsReporterContext {
+	if o == nil || IsNil(o.Reporter) {
+		var ret OpsReporterContext
+		return ret
+	}
+	return *o.Reporter
+}
+
+// GetReporterOk returns a tuple with the Reporter field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *OpsItemContext) GetReporterOk() (*OpsReporterContext, bool) {
+	if o == nil || IsNil(o.Reporter) {
+		return nil, false
+	}
+	return o.Reporter, true
+}
+
+// HasReporter returns a boolean if a field has been set.
+func (o *OpsItemContext) HasReporter() bool {
+	if o != nil && !IsNil(o.Reporter) {
+		return true
+	}
+
+	return false
+}
+
+// SetReporter gets a reference to the given OpsReporterContext and assigns it to the Reporter field.
+func (o *OpsItemContext) SetReporter(v OpsReporterContext) {
+	o.Reporter = &v
+}
+
 // GetErrorChart returns the ErrorChart field value if set, zero value otherwise.
 func (o *OpsItemContext) GetErrorChart() OpsItemContextErrorChart {
 	if o == nil || IsNil(o.ErrorChart) {
@@ -228,6 +261,9 @@ func (o OpsItemContext) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.MeasurePlan) {
 		toSerialize["measurePlan"] = o.MeasurePlan
 	}
+	if !IsNil(o.Reporter) {
+		toSerialize["reporter"] = o.Reporter
+	}
 	if !IsNil(o.ErrorChart) {
 		toSerialize["errorChart"] = o.ErrorChart
 	}
@@ -257,6 +293,7 @@ func (o *OpsItemContext) UnmarshalJSON(data []byte) (err error) {
 		delete(additionalProperties, "error")
 		delete(additionalProperties, "alert")
 		delete(additionalProperties, "measurePlan")
+		delete(additionalProperties, "reporter")
 		delete(additionalProperties, "errorChart")
 		o.AdditionalProperties = additionalProperties
 	}

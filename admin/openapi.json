@@ -1602,6 +1602,137 @@
         "additionalProperties": {},
         "description": "An assistant-proposed measurement plan: what it already built, what it still needs, and the event instrumentation you implement."
       },
+      "PublicReporterUser": {
+        "type": "object",
+        "maxProperties": 50,
+        "additionalProperties": {},
+        "description": "A reporter's SDK user attributes, keyed by attribute name — the same map your app passes to the SDK to evaluate flags. At most 50 attributes; each value is a string (≤500 chars), number, boolean, `null` (treated as unset) or a flat array of those scalars (≤50 entries) — anything else is rejected with a 400. `user_id` or `anonymous_id` is the bucketing unit."
+      },
+      "OpsReporterFlag": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "The flag's SDK key — what code passes to `getFlag` (`folder/name` when foldered)."
+          },
+          "name": {
+            "type": "string",
+            "description": "The flag's admin name (`folder.name` when foldered) — the handle the admin API, CLI and MCP address it by."
+          }
+        },
+        "required": [
+          "key",
+          "name"
+        ],
+        "additionalProperties": false,
+        "description": "A feature flag that evaluated ON for the reporter."
+      },
+      "OpsReporterKillswitch": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "The kill switch's SDK key — what code passes to `getKillSwitch`."
+          },
+          "name": {
+            "type": "string",
+            "description": "The kill switch's admin name — the handle the admin API, CLI and MCP address it by."
+          },
+          "switches": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "For a kill switch with named sub-switches, the ones that were killed. Absent for a flat kill switch."
+          }
+        },
+        "required": [
+          "key",
+          "name"
+        ],
+        "additionalProperties": false,
+        "description": "A kill switch that was engaged (killed) when the report was filed."
+      },
+      "OpsReporterExperiment": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "The experiment's SDK key — what code passes to `getExperiment`."
+          },
+          "name": {
+            "type": "string",
+            "description": "The experiment's admin name — the handle the admin API, CLI and MCP address it by."
+          },
+          "group": {
+            "type": "string",
+            "description": "The group (arm) the reporter was assigned to, e.g. `control` or `treatment`."
+          },
+          "universe": {
+            "type": "string",
+            "description": "The universe the experiment runs in."
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "group"
+        ],
+        "additionalProperties": false,
+        "description": "A running experiment the reporter was enrolled in."
+      },
+      "OpsReporterContext": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/PublicReporterUser"
+          },
+          "env": {
+            "type": "string",
+            "description": "The environment the snapshot was evaluated against — the filing client key's environment."
+          },
+          "evaluatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the snapshot was taken (the moment the report was filed, or last re-triggered)."
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpsReporterFlag"
+            },
+            "description": "Feature flags that evaluated ON for the reporter."
+          },
+          "killswitches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpsReporterKillswitch"
+            },
+            "description": "Kill switches that were engaged when the report was filed."
+          },
+          "experiments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpsReporterExperiment"
+            },
+            "description": "Running experiments the reporter was enrolled in, with their assigned group."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "`true` when a list hit its 200-entry cap and was cut short."
+          }
+        },
+        "required": [
+          "user",
+          "env",
+          "evaluatedAt",
+          "flags",
+          "killswitches",
+          "experiments"
+        ],
+        "additionalProperties": {},
+        "description": "Who filed a public bug/feature request and what they had on. Present only when the report carried the reporter's SDK identity (`user`): Shipeasy evaluates every flag, kill switch and running experiment for that user at filing time — the same evaluation the SDK runs, without per-browser devtools overrides — and keeps the result here. It is a point-in-time snapshot: a flag flipped since then is not reflected."
+      },
       "OpsItemContext": {
         "type": "object",
         "properties": {
@@ -1616,6 +1747,9 @@
           },
           "measurePlan": {
             "$ref": "#/components/schemas/OpsMeasurePlanContext"
+          },
+          "reporter": {
+            "$ref": "#/components/schemas/OpsReporterContext"
           },
           "errorChart": {
             "type": "object",
@@ -2595,6 +2729,17 @@
             ],
             "description": "Arbitrary capture context, or `null`."
           },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicReporterUser"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The reporter's SDK identity — the same user attribute object your app passes to the Shipeasy SDK to evaluate flags (`user_id`, `anonymous_id`, `email`, plus any targeting attributes). When present, Shipeasy evaluates every feature flag, kill switch and running experiment for this user at filing time and stores the result on the ticket as `context.reporter`, so triage (and any agent working the ticket) sees exactly which features the reporter had on. The browser and React Native devtools attach the identified user automatically. Omit it (or send `null`) to file without a feature snapshot."
+          },
           "dedupKey": {
             "type": "string",
             "maxLength": 200,
@@ -2761,6 +2906,17 @@
               }
             ],
             "description": "Arbitrary capture context, or `null`."
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicReporterUser"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The reporter's SDK identity — the same user attribute object your app passes to the Shipeasy SDK to evaluate flags (`user_id`, `anonymous_id`, `email`, plus any targeting attributes). When present, Shipeasy evaluates every feature flag, kill switch and running experiment for this user at filing time and stores the result on the ticket as `context.reporter`, so triage (and any agent working the ticket) sees exactly which features the reporter had on. The browser and React Native devtools attach the identified user automatically. Omit it (or send `null`) to file without a feature snapshot."
           },
           "dedupKey": {
             "type": "string",

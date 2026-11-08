@@ -45,6 +45,8 @@ type CreatePublicFeatureRequestRequest struct {
 	UserAgent NullableString `json:"userAgent,omitempty"`
 	// Arbitrary capture context, or `null`.
 	Context map[string]interface{} `json:"context,omitempty"`
+	// The reporter's SDK identity — the same user attribute object your app passes to the Shipeasy SDK to evaluate flags (`user_id`, `anonymous_id`, `email`, plus any targeting attributes). When present, Shipeasy evaluates every feature flag, kill switch and running experiment for this user at filing time and stores the result on the ticket as `context.reporter`, so triage (and any agent working the ticket) sees exactly which features the reporter had on. The browser and React Native devtools attach the identified user automatically. Omit it (or send `null`) to file without a feature snapshot.
+	User map[string]interface{} `json:"user,omitempty"`
 	// Caller-chosen dedupe identity for this request, stored on the ticket. Behaves exactly as on `POST /ops/bug`: a repeat carrying the same key refreshes the open ticket already holding it (fields overwritten, a \"re-triggered\" comment appended) and returns `deduped: true` with `updated: true`, instead of filing a second one.
 	DedupKey *string `json:"dedupKey,omitempty"`
 	// Where this request's completion notification lands.
@@ -506,6 +508,39 @@ func (o *CreatePublicFeatureRequestRequest) SetContext(v map[string]interface{})
 	o.Context = v
 }
 
+// GetUser returns the User field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *CreatePublicFeatureRequestRequest) GetUser() map[string]interface{} {
+	if o == nil {
+		var ret map[string]interface{}
+		return ret
+	}
+	return o.User
+}
+
+// GetUserOk returns a tuple with the User field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *CreatePublicFeatureRequestRequest) GetUserOk() (map[string]interface{}, bool) {
+	if o == nil || IsNil(o.User) {
+		return map[string]interface{}{}, false
+	}
+	return o.User, true
+}
+
+// HasUser returns a boolean if a field has been set.
+func (o *CreatePublicFeatureRequestRequest) HasUser() bool {
+	if o != nil && !IsNil(o.User) {
+		return true
+	}
+
+	return false
+}
+
+// SetUser gets a reference to the given map[string]interface{} and assigns it to the User field.
+func (o *CreatePublicFeatureRequestRequest) SetUser(v map[string]interface{}) {
+	o.User = v
+}
+
 // GetDedupKey returns the DedupKey field value if set, zero value otherwise.
 func (o *CreatePublicFeatureRequestRequest) GetDedupKey() string {
 	if o == nil || IsNil(o.DedupKey) {
@@ -623,6 +658,9 @@ func (o CreatePublicFeatureRequestRequest) ToMap() (map[string]interface{}, erro
 	}
 	if o.Context != nil {
 		toSerialize["context"] = o.Context
+	}
+	if o.User != nil {
+		toSerialize["user"] = o.User
 	}
 	if !IsNil(o.DedupKey) {
 		toSerialize["dedupKey"] = o.DedupKey

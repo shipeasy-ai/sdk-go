@@ -104,6 +104,20 @@ _, _, _ = client.OpsAPI.CreatePublicFeatureRequest(ctx).
     CreatePublicFeatureRequestRequest(*feature).Execute()
 ```
 
+### Attach the reporter's identity
+
+Pass `user` — the same map you hand the SDK to evaluate flags for this
+person — and Shipeasy evaluates every flag, kill switch and running experiment
+for them at filing time. The ticket then shows what the reporter had on (flags
+that were on, engaged kill switches, experiment arms) in the dashboard, and the
+agent working it gets the same list. Omit it to file without one.
+
+```go
+body := admin.NewCreatePublicBugRequest("Checkout spinner never stops")
+body.SetUser(map[string]interface{}{"user_id": u.ID, "email": u.Email, "plan": u.Plan})
+_, _, err := client.OpsAPI.CreatePublicBug(ctx).CreatePublicBugRequest(*body).Execute()
+```
+
 ## List the ops queue
 
 ``ListOpsItems`` reads the project's tickets (bugs, feature requests, errors, alerts) in
