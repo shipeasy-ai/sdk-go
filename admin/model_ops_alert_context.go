@@ -20,7 +20,7 @@ var _ MappedNullable = &OpsAlertContext{}
 
 // OpsAlertContext Detail for an `alert` ticket — the fired-alert INSTANCE this ticket is. List rows carry the stored capture subset (`source`, `dedupeKey`, `ruleId`, `detail`, `href`, `observedValue`); the single-item read hydrates the rest, resolving `severity`/`status` off the ticket itself and the rule → metric → event chain at request time.
 type OpsAlertContext struct {
-	// What kind of condition opened this alert instance.
+	// What kind of condition opened this alert instance. `gcp_monitoring`, `prometheus_alertmanager`, `grafana_alerting`, `aws_cloudwatch`, `azure_monitor`, `datadog_monitors` and `generic_webhook` are incidents delivered from outside monitoring through the project's inbound alert endpoint for that provider; the ticket's `context.alert.external` carries the incident (policy, condition, upstream severity, console `url`, resource labels, `occurrences`, open incident ids).
 	Source string `json:"source"`
 	// Stable per-condition key; with `source` forms the ticket's `sourceRef`.
 	DedupeKey string `json:"dedupeKey"`

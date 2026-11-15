@@ -1340,9 +1340,16 @@
               "killswitch_armed",
               "experiment_srm",
               "experiment_peek",
-              "guardrail"
+              "guardrail",
+              "gcp_monitoring",
+              "prometheus_alertmanager",
+              "grafana_alerting",
+              "aws_cloudwatch",
+              "azure_monitor",
+              "datadog_monitors",
+              "generic_webhook"
             ],
-            "description": "What kind of condition opened this alert instance."
+            "description": "What kind of condition opened this alert instance. `gcp_monitoring`, `prometheus_alertmanager`, `grafana_alerting`, `aws_cloudwatch`, `azure_monitor`, `datadog_monitors` and `generic_webhook` are incidents delivered from outside monitoring through the project's inbound alert endpoint for that provider; the ticket's `context.alert.external` carries the incident (policy, condition, upstream severity, console `url`, resource labels, `occurrences`, open incident ids)."
           },
           "dedupeKey": {
             "type": "string",
