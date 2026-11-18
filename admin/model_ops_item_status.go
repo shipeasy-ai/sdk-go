@@ -15,7 +15,7 @@ import (
 	"fmt"
 )
 
-// OpsItemStatus Lifecycle status of a queue item. The working flow is `open` → `in_progress` → `ready_for_qa` → `resolved` (or `wont_fix`, terminal from any earlier stage). `blocked` marks an item that can't progress until an external dependency clears — a working state a human sets and clears. `ready_for_qa` is what a developer sets once a fix lands; `resolved` is the QA sign-off, normally flipped in the dashboard after verification — set it directly from code only when the fix has been verified end-to-end. `investigating_by_ai` is a system-owned display state — set when the AI agent (Jarvis) picks an item up to investigate, never chosen by a human — so it is shown but not offered as a manual choice. `pending_approval` is the one human-gated holding state: it parks an item OUT of the work queue until a human promotes it to `open` in the dashboard, so `GET /api/admin/ops` excludes it under `status=all`/default and returns it only when requested as an exact `status`. It covers untriaged inbound that must never be auto-implemented — connector requests filed from a customer's connectors panel, and questions funnelled in from the \"Stuck in onboarding?\" assistant — where approving means flipping the status to `open`. Two earlier values were removed in favour of this single gate: `triage` (the onboarding-help bucket, now `pending_approval`) and `triaged` (a redundant \"looked at but not started\" step, now plain `open`).
+// OpsItemStatus Lifecycle status of a queue item. The working flow is `open` → `in_progress` → `ready_for_qa` → `resolved` (or `wont_fix`, terminal from any earlier stage). `blocked` marks an item that can't progress until an external dependency clears — a working state a human sets and clears. `ready_for_qa` is what a developer sets once a fix lands; `resolved` is the QA sign-off, normally flipped in the dashboard after verification — set it directly from code only when the fix has been verified end-to-end. `investigating_by_ai` is a system-owned display state — set when the AI agent (Jarvis) picks an item up to investigate, never chosen by a human — so it is shown but not offered as a manual choice. `pending_approval` is the one human-gated holding state: it parks an item OUT of the work queue until a human promotes it to `open` in the dashboard, so `GET /api/admin/ops` excludes it under `status=all`/default and returns it only when requested as an exact `status`. It covers untriaged inbound that must never be auto-implemented — connector requests filed from a customer's connectors panel, and questions funnelled in from the \"Stuck in onboarding?\" assistant — where approving means flipping the status to `open`. Two earlier values were removed in favour of this single gate: `triage` (the onboarding-help bucket, now `pending_approval`) and `triaged` (a redundant \"looked at but not started\" step, now plain `open`). `backlog` is the team's \"accepted, not now\" shelf: an item someone decided is worth keeping but is not scheduled. Like `pending_approval` it is held OUT of the work queue — excluded from `unresolved` and `all`, never auto-launched to an agent, returned only when requested as the exact status — and it lives on the dashboard's Backlog page instead of the ops board. Promoting an item means flipping it to `open` (or delegating it to an agent); anyone, person or agent, may shelve an item by setting `backlog`. Not to be confused with the `backlog` value of `OpsInvestigationState`, which means \"no automation has touched it\".
 type OpsItemStatus string
 
 // List of OpsItemStatus
@@ -28,6 +28,7 @@ const (
 	OPSITEMSTATUS_READY_FOR_QA OpsItemStatus = "ready_for_qa"
 	OPSITEMSTATUS_RESOLVED OpsItemStatus = "resolved"
 	OPSITEMSTATUS_WONT_FIX OpsItemStatus = "wont_fix"
+	OPSITEMSTATUS_BACKLOG OpsItemStatus = "backlog"
 )
 
 // All allowed values of OpsItemStatus enum
@@ -40,6 +41,7 @@ var AllowedOpsItemStatusEnumValues = []OpsItemStatus{
 	"ready_for_qa",
 	"resolved",
 	"wont_fix",
+	"backlog",
 }
 
 func (v *OpsItemStatus) UnmarshalJSON(src []byte) error {
