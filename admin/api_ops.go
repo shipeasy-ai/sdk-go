@@ -449,7 +449,7 @@ func (r ApiListOpsItemsRequest) Type_(type_ string) ApiListOpsItemsRequest {
 	return r
 }
 
-// Filter by one lifecycle status, &#x60;unresolved&#x60; for every status that is not &#x60;resolved&#x60; or &#x60;wont_fix&#x60;, or &#x60;all&#x60; for every status. Defaults to &#x60;all&#x60; over HTTP; the CLI and MCP tool default to &#x60;unresolved&#x60;, so pass &#x60;all&#x60; there to include resolved and won&#39;t-fix items. The human-gated holding state (&#x60;pending_approval&#x60;) is excluded from &#x60;unresolved&#x60; and &#x60;all&#x60;, and returned only when requested as the exact status.
+// Filter by one lifecycle status, &#x60;unresolved&#x60; for every status that is not &#x60;resolved&#x60; or &#x60;wont_fix&#x60;, or &#x60;all&#x60; for every status. Defaults to &#x60;all&#x60; over HTTP; the CLI and MCP tool default to &#x60;unresolved&#x60;, so pass &#x60;all&#x60; there to include resolved and won&#39;t-fix items. The two parked states — the human-gated holding state (&#x60;pending_approval&#x60;) and the \&quot;not now\&quot; shelf (&#x60;backlog&#x60;) — are excluded from &#x60;unresolved&#x60; and &#x60;all&#x60;, and returned only when requested as the exact status.
 func (r ApiListOpsItemsRequest) Status(status string) ApiListOpsItemsRequest {
 	r.status = &status
 	return r
