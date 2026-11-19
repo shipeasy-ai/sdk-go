@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.25.0 — 2026-11-19
+
+### `See()` reports carry the browser's `X-SE-Correlation` token (shipeasy #704)
+
+`Middleware` now reads the `X-SE-Correlation` header the browser SDK sends on
+every same-origin request onto the request context (validated against
+`^[A-Za-z0-9-]{8,64}$`, the shape the collector accepts; anything else is
+dropped, never sent). The new `SeeContext(ctx, problem)` and
+`SeeViolationContext(ctx, name)` — the same chain as `See` / `SeeViolation`,
+bound to a context — emit it as `correlation_id` on the `type:"error"` event,
+so Shipeasy can link a browser error to the server exception behind it.
+`CorrelationHeader` names the header. Reports without a token are unchanged.
+
 ## 0.24.0 — 2026-11-08
 
 ### Public tickets carry the reporter's identity (`user`)

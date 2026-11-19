@@ -50,6 +50,25 @@ reach for it only when you genuinely cannot pass the context inline:
 so there is no client to thread through. Before `Configure` has run it logs a
 warning and returns a no-op chain — it never panics.
 
+### Linking a browser error to the server exception behind it
+
+The browser SDK (`@shipeasy/sdk/client`) sends a per-request token on the
+`X-SE-Correlation` header of every same-origin request. `shipeasy.Middleware`
+reads it (a malformed token is dropped) onto the request's `context.Context`,
+and a report made with that context carries it as `correlation_id`. Shipeasy
+joins the browser's report and this server report on that token and records the
+server exception as the browser error's cause, so the two are triaged as one
+issue instead of two. Go has no request-local storage, so inside a handler use
+the context-taking forms — same chain, one extra argument:
+
+```go
+shipeasy.SeeContext(r.Context(), err).CausesThe("checkout").To("show the retry page")
+shipeasy.SeeViolationContext(r.Context(), "cart_total_negative").To("clamp to zero")
+```
+
+Plain `See(err)` still works everywhere; it just can't be linked. The token
+lives on the request context, so it ends with the request.
+
 ## Violations (non-exception problems)
 
 A `Violation` is a problem with no Go `error` value. The name is a stable

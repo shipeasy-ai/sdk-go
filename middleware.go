@@ -31,6 +31,45 @@ var anonIDRx = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 type anonIDKey struct{}
 
+// CorrelationHeader is the request header the browser SDK (@shipeasy/sdk/client)
+// sends on every same-origin request: one token per request. Middleware parks it
+// on the request context, and every SeeContext / SeeViolationContext report made
+// with that context carries it as `correlation_id` — the token Shipeasy joins on
+// to link the browser's error to the server exception behind it.
+const CorrelationHeader = "X-SE-Correlation"
+
+// Same shape the collector accepts; anything else is dropped, never sent.
+var correlationRx = regexp.MustCompile(`^[A-Za-z0-9-]{8,64}$`)
+
+type correlationKey struct{}
+
+// cleanCorrelationID returns the trimmed token when it is well-formed, else "".
+func cleanCorrelationID(v string) string {
+	v = strings.TrimSpace(v)
+	if correlationRx.MatchString(v) {
+		return v
+	}
+	return ""
+}
+
+// withCorrelationID stores a validated correlation token on ctx. An invalid or
+// blank token clears any inherited one, so a malformed header never leaks an
+// outer value into this request's reports.
+func withCorrelationID(ctx context.Context, token string) context.Context {
+	return context.WithValue(ctx, correlationKey{}, cleanCorrelationID(token))
+}
+
+// correlationIDFrom returns the correlation token on ctx, or "".
+func correlationIDFrom(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if id, ok := ctx.Value(correlationKey{}).(string); ok {
+		return id
+	}
+	return ""
+}
+
 // MintAnonID returns a fresh opaque bucketing id (a UUIDv4). Exposed for callers
 // that mint outside the HTTP path; Middleware uses it internally.
 func MintAnonID() string {
@@ -99,6 +138,12 @@ func requestIsHTTPS(r *http.Request) bool {
 // unit when the visitor is anonymous:
 //
 //	on := client.GetFlag("new_checkout", shipeasy.User{"anonymous_id": shipeasy.AnonID(r)})
+//
+// It also reads the browser SDK's X-SE-Correlation header (validated; a
+// malformed token is dropped) onto the request context, so a report made with
+// shipeasy.SeeContext(r.Context(), err) carries `correlation_id`. The value
+// lives on the request's context, so it ends with the request — nothing leaks
+// into the next one.
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, minted := ReadOrMintAnonID(r)
@@ -106,6 +151,7 @@ func Middleware(next http.Handler) http.Handler {
 			SetAnonIDCookie(w, r, id)
 		}
 		ctx := context.WithValue(r.Context(), anonIDKey{}, id)
+		ctx = withCorrelationID(ctx, r.Header.Get(CorrelationHeader))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

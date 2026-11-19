@@ -23,6 +23,7 @@ package shipeasy
 // If you don't know the consequence of an error, don't handle it here.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -142,6 +143,9 @@ type seeEvent struct {
 	Env        string         `json:"env,omitempty"`
 	SDKVersion string         `json:"sdk_version"`
 	TS         int64          `json:"ts"`
+	// CorrelationID is the browser SDK's per-request X-SE-Correlation token;
+	// ingest joins the browser's report and this one on it. Omitted when absent.
+	CorrelationID string `json:"correlation_id,omitempty"`
 }
 
 // buildSeeEvent constructs the wire event from a finalized chain. For a Go error
@@ -268,6 +272,7 @@ type SeeChain struct {
 	subject string
 	outcome string
 	extras  map[string]any
+	corrID  string
 	done    bool
 }
 
@@ -400,6 +405,17 @@ func (c *Engine) SeeViolation(name string) *SeeChain {
 	return &SeeChain{client: c, problem: Violation{Name: name}}
 }
 
+// SeeContext is See bound to a request context: the report carries the
+// browser's correlation token that Middleware parked on ctx (if any).
+func (c *Engine) SeeContext(ctx context.Context, problem any) *SeeChain {
+	return &SeeChain{client: c, problem: problem, corrID: correlationIDFrom(ctx)}
+}
+
+// SeeViolationContext is SeeViolation bound to a request context.
+func (c *Engine) SeeViolationContext(ctx context.Context, name string) *SeeChain {
+	return &SeeChain{client: c, problem: Violation{Name: name}, corrID: correlationIDFrom(ctx)}
+}
+
 // ControlFlowException marks an error as expected control flow — reports nothing.
 func (c *Engine) ControlFlowException(err error) *ControlFlowChain {
 	return &ControlFlowChain{err: err}
@@ -425,6 +441,7 @@ func (c *Engine) dispatchSee(s *SeeChain) {
 		outcome = seeDefaultOutcome
 	}
 	ev := buildSeeEvent(s.problem, subject, outcome, c.stripPrivate(s.extras), c.env)
+	ev.CorrelationID = cleanCorrelationID(s.corrID)
 	if c.seeLimiter != nil && !c.seeLimiter.shouldSend(ev) {
 		return
 	}
@@ -482,6 +499,33 @@ func SeeViolation(name string) *SeeChain {
 		return &SeeChain{problem: Violation{Name: name}}
 	}
 	return c.SeeViolation(name)
+}
+
+// SeeContext is See for code that has the request's context.Context. Middleware
+// parks the browser SDK's X-SE-Correlation token on the request context; a
+// report made with that context carries it as `correlation_id`, which is how
+// Shipeasy links the browser's error to this server exception. With a context
+// that carries no token it behaves exactly like See.
+//
+//	shipeasy.SeeContext(r.Context(), err).CausesThe("checkout").To("use cached prices")
+func SeeContext(ctx context.Context, problem any) *SeeChain {
+	c := resolveDefaultEngine()
+	if c == nil {
+		pkgLogf(LogLevelWarn, "see() called before an engine was created — error dropped")
+		return &SeeChain{problem: problem}
+	}
+	return c.SeeContext(ctx, problem)
+}
+
+// SeeViolationContext is SeeViolation for code that has the request's context;
+// see SeeContext.
+func SeeViolationContext(ctx context.Context, name string) *SeeChain {
+	c := resolveDefaultEngine()
+	if c == nil {
+		pkgLogf(LogLevelWarn, "see() called before an engine was created — error dropped")
+		return &SeeChain{problem: Violation{Name: name}}
+	}
+	return c.SeeViolationContext(ctx, name)
 }
 
 // ControlFlowException marks an error as expected control flow (reports nothing).
