@@ -2,6 +2,7 @@ package shipeasy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -320,3 +321,68 @@ func TestSeePrivateAttributesStrippedFromExtras(t *testing.T) {
 		t.Errorf("ok = %v, want yes", ev.Extras["ok"])
 	}
 }
+
+func TestSeeContextCarriesCorrelationID(t *testing.T) {
+	c, rt := newCaptureClient(Options{})
+	ctx := withCorrelationID(context.Background(), "corr-token-0001")
+	c.SeeContext(ctx, errors.New("boom")).CausesThe("checkout").To("use cached prices")
+	waitFor(t, func() bool { return rt.count() == 1 })
+	if got := rt.events(t)[0].CorrelationID; got != "corr-token-0001" {
+		t.Fatalf("correlation_id = %q, want corr-token-0001", got)
+	}
+
+	c.SeeViolationContext(ctx, "cart_total_negative").To("clamp to zero")
+	waitFor(t, func() bool { return rt.count() == 2 })
+	if got := rt.events(t)[1].CorrelationID; got != "corr-token-0001" {
+		t.Fatalf("violation correlation_id = %q, want corr-token-0001", got)
+	}
+}
+
+func TestSeeOmitsCorrelationIDWhenAbsent(t *testing.T) {
+	c, rt := newCaptureClient(Options{})
+	c.See(errors.New("a")).To("x")
+	c.SeeContext(context.Background(), errors.New("b")).To("y")
+	c.SeeContext(nil, errors.New("c")).To("z") //nolint:staticcheck // nil ctx must not panic
+	waitFor(t, func() bool { return rt.count() == 3 })
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	for _, b := range rt.sent {
+		if bytes.Contains(b, []byte("correlation_id")) {
+			t.Fatalf("wire body carries correlation_id without a token: %s", b)
+		}
+	}
+}
+
+func TestSeeContextDropsMalformedCorrelationID(t *testing.T) {
+	c, rt := newCaptureClient(Options{})
+	// Bypass the validating setter to prove dispatch re-validates too.
+	ctx := context.WithValue(context.Background(), correlationKey{}, "bad token!")
+	c.SeeContext(ctx, errors.New("boom")).To("x")
+	waitFor(t, func() bool { return rt.count() == 1 })
+	rt.mu.Lock()
+	body := rt.sent[0]
+	rt.mu.Unlock()
+	if bytes.Contains(body, []byte("correlation_id")) {
+		t.Fatalf("malformed token was sent: %s", body)
+	}
+}
+
+func TestMiddlewareToSeeContextEndToEnd(t *testing.T) {
+	c, rt := newCaptureClient(Options{})
+	h := Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c.SeeContext(r.Context(), errors.New("db down")).CausesThe("checkout").To("show retry")
+	}))
+	req, _ := http.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.Header.Set(CorrelationHeader, "e2e-token-42abc")
+	h.ServeHTTP(&nopResponseWriter{h: http.Header{}}, req)
+	waitFor(t, func() bool { return rt.count() == 1 })
+	if got := rt.events(t)[0].CorrelationID; got != "e2e-token-42abc" {
+		t.Fatalf("correlation_id = %q, want e2e-token-42abc", got)
+	}
+}
+
+type nopResponseWriter struct{ h http.Header }
+
+func (w *nopResponseWriter) Header() http.Header         { return w.h }
+func (w *nopResponseWriter) Write(b []byte) (int, error) { return len(b), nil }
+func (w *nopResponseWriter) WriteHeader(int)             {}

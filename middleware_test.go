@@ -105,3 +105,49 @@ func TestAnonIDWithoutMiddleware(t *testing.T) {
 		t.Fatal("AnonID should be empty when Middleware did not run")
 	}
 }
+
+func TestMiddlewareCarriesCorrelationToken(t *testing.T) {
+	var seen string
+	h := Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = correlationIDFrom(r.Context())
+	}))
+
+	// Well-formed token (surrounding whitespace trimmed) is parked on the context.
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.Header.Set(CorrelationHeader, "  abcd1234-EF56-7890  ")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	if seen != "abcd1234-EF56-7890" {
+		t.Fatalf("handler saw correlation %q, want abcd1234-EF56-7890", seen)
+	}
+	if got := correlationIDFrom(req.Context()); got != "" {
+		t.Fatalf("outer request context must not be mutated, got %q", got)
+	}
+
+	// The next request without the header sees nothing — the token ended with
+	// the request that carried it.
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example.com/", nil))
+	if seen != "" {
+		t.Fatalf("request without header saw correlation %q, want empty", seen)
+	}
+}
+
+func TestMiddlewareDropsMalformedCorrelationToken(t *testing.T) {
+	var seen string
+	h := Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = correlationIDFrom(r.Context())
+	}))
+	long := ""
+	for i := 0; i < 65; i++ {
+		long += "a"
+	}
+	for _, bad := range []string{"short", "has space in it", "bad_underscore_x", "semi;colon12", long} {
+		req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+		req.Header.Set(CorrelationHeader, bad)
+		// An inherited value must also be cleared by a malformed header.
+		req = req.WithContext(withCorrelationID(req.Context(), "outer-token-123"))
+		h.ServeHTTP(httptest.NewRecorder(), req)
+		if seen != "" {
+			t.Fatalf("malformed token %q was kept as %q", bad, seen)
+		}
+	}
+}

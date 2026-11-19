@@ -114,6 +114,12 @@ if err := chargeCard(o); err != nil {
 shipeasy.ControlFlowException(err).Because("because empty-state path")
 ```
 
+Inside an HTTP handler prefer `shipeasy.SeeContext(r.Context(), err)` (and
+`SeeViolationContext`): `shipeasy.Middleware` parks the browser SDK's
+`X-SE-Correlation` header on the request context, so the report carries
+`correlation_id` and Shipeasy links the browser's error to this server
+exception. Same chain otherwise; plain `See(err)` just can't be linked.
+
 Reference: <https://shipeasy-ai.github.io/sdk-go/pages/error-reporting.md> · snippet
 <https://shipeasy-ai.github.io/sdk-go/snippets/ops/see.md>
 
