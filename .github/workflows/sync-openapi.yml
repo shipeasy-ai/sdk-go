@@ -1,7 +1,7 @@
 name: Sync OpenAPI spec
 
-# Daily regeneration of the optional Admin API client from the canonical
-# OpenAPI spec (shipeasy-ai/shipeasy -> openapi/openapi.json). Refreshes the
+# Daily regeneration of the optional Admin API client from the SDK slice of
+# the OpenAPI spec (shipeasy-ai/shipeasy -> openapi/openapi-sdk.json). Refreshes the
 # vendored admin/openapi.json, re-runs scripts/gen_admin.sh, and opens (or
 # updates in place) a single PR into main. If a previous sync PR has not been
 # merged yet, the new run commits onto the same branch instead of opening a
@@ -37,9 +37,16 @@ jobs:
 
       - name: Refresh vendored admin spec from the canonical source
         run: |
+          # The SDKs vendor ONLY the declared slice (openapi-sdk.json, ~8 ops),
+          # never the full admin spec (openapi.json, 120+ ops, ~200k lines of
+          # generated client). The monorepo's pre-commit drift gate
+          # (scripts/sdk-spec/sync.mjs) byte-compares against the slice, so
+          # write it exactly the way sync.mjs does: label 3.1.0, 2-space JSON,
+          # trailing newline. A no-change night then produces no PR.
           curl -fsSL --retry 3 \
-            https://raw.githubusercontent.com/shipeasy-ai/shipeasy/main/openapi/openapi.json \
-            -o admin/openapi.json
+            https://raw.githubusercontent.com/shipeasy-ai/shipeasy/main/openapi/openapi-sdk.json \
+            -o "$RUNNER_TEMP/openapi-sdk.json"
+          node -e 'const fs = require("fs"); const s = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); fs.writeFileSync("admin/openapi.json", JSON.stringify({ ...s, openapi: "3.1.0" }, null, 2) + "\n")' "$RUNNER_TEMP/openapi-sdk.json"
 
       - name: Regenerate the admin client
         run: bash scripts/gen_admin.sh
@@ -57,7 +64,7 @@ jobs:
           title: "chore: sync admin client with latest OpenAPI spec"
           body: |
             Automated daily regeneration of the Admin API client from the
-            canonical OpenAPI spec (`shipeasy-ai/shipeasy` -> `openapi/openapi.json`).
+            SDK slice of the OpenAPI spec (`shipeasy-ai/shipeasy` -> `openapi/openapi-sdk.json`).
 
             - Refreshes `admin/openapi.json`
             - Re-runs `scripts/gen_admin.sh`
