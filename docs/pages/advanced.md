@@ -185,6 +185,27 @@ cookie is unsigned, so it is **never active in production**. Per name the
 precedence is programmatic `Override*` > signed `se_ov` > `se_ov_dev` >
 normal evaluation.
 
+### Frontend and API on different subdomains
+
+When the frontend is `app.example.com` and the API is `api.example.com`, the
+browser SDK scopes the override cookies to the registrable domain (auto-detected,
+or set `overrideCookieDomain` in the browser `configure()`), so the API sees them
+and `Middleware` works unchanged. For token-auth APIs (or when you do not want
+cookies sent), the browser SDK's `getOverrideHeaders()` returns
+`{"X-Shipeasy-Overrides": "se_ov=...; se_ov_dev=..."}`: attach it to your API
+requests (the API's CORS must allow that header). `Middleware` reads it
+automatically; for manual scoping pass it as the optional third argument:
+
+```go
+ctx := shipeasy.WithRequestOverrides(r.Context(), r.Header.Get("Cookie"),
+    r.Header.Get(shipeasy.OverridesHeader))
+```
+
+Per cookie name the `Cookie` header wins and the custom header fills in when it
+is absent. The same verification and guards apply (a signed value must verify;
+`se_ov_dev` is not even parsed unless `DevOverrides` is on in a non-production
+process).
+
 ## bucketBy
 
 An experiment can bucket on an attribute other than the individual (e.g.

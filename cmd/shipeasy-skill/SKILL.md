@@ -117,6 +117,11 @@ unsigned `se_ov_dev` cookie the browser SDK writes for `?se_gate_x=true`, and on
 in a non-production process (otherwise ignored with one warning). Signed `se_ov`
 wins per name.
 
+Cross-subdomain APIs: the browser SDK domain-scopes the cookies, or send
+`getOverrideHeaders()` (`X-Shipeasy-Overrides`, cookie syntax); `Middleware`
+reads it, or pass `r.Header.Get(shipeasy.OverridesHeader)` as the third arg of
+`WithRequestOverrides`. Cookie wins per name; same verification and guards.
+
 ## Error reporting — See()
 
 ```go
