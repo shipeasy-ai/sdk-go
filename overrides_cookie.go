@@ -135,3 +135,64 @@ func extractOverrideCookie(input string) string {
 	}
 	return ""
 }
+
+// DevOverrideCookieName is the UNSIGNED dev-only cookie the browser SDK writes
+// for ?se_gate_x=true outside production. Honored only with Options.DevOverrides
+// in a non-production process.
+const DevOverrideCookieName = "se_ov_dev"
+
+// extractDevOverrideCookie returns the raw se_ov_dev value from a Cookie header
+// (or a bare value, which has no '.', ';' or '='), URL-decoded, or "".
+func extractDevOverrideCookie(input string) string {
+	if input == "" {
+		return ""
+	}
+	if !strings.ContainsAny(input, ";=.") {
+		return input
+	}
+	for _, part := range strings.Split(input, ";") {
+		eq := strings.Index(part, "=")
+		if eq < 0 {
+			continue
+		}
+		if strings.TrimSpace(part[:eq]) == DevOverrideCookieName {
+			v := strings.TrimSpace(part[eq+1:])
+			if dec, err := url.QueryUnescape(v); err == nil {
+				return dec
+			}
+			return v
+		}
+	}
+	return ""
+}
+
+// decodeDevOverrideCookie decodes base64url(JSON {gates,configs,exps}). Any
+// malformation yields nil (ignored, never an error).
+func decodeDevOverrideCookie(val string) *requestOverrides {
+	if val == "" {
+		return nil
+	}
+	raw, err := b64uDecode(val)
+	if err != nil {
+		return nil
+	}
+	var p struct {
+		Gates   map[string]bool   `json:"gates"`
+		Configs map[string]any    `json:"configs"`
+		Exps    map[string]string `json:"exps"`
+	}
+	if json.Unmarshal(raw, &p) != nil {
+		return nil
+	}
+	ov := &requestOverrides{gates: p.Gates, configs: p.Configs, exps: p.Exps}
+	if ov.gates == nil {
+		ov.gates = map[string]bool{}
+	}
+	if ov.configs == nil {
+		ov.configs = map[string]any{}
+	}
+	if ov.exps == nil {
+		ov.exps = map[string]string{}
+	}
+	return ov
+}

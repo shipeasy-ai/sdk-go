@@ -2,6 +2,7 @@ package shipeasy
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -193,5 +194,73 @@ func TestMiddlewareScopesOverrides(t *testing.T) {
 	h2.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
 	if in {
 		t.Fatal("no cookie => no override")
+	}
+}
+
+const fxDev = "eyJnYXRlcyI6eyJsb2JieV9ob2xkIjp0cnVlLCJvbGRfbmF2IjpmYWxzZX0sImNvbmZpZ3MiOnsiYmFubmVyIjp7InRleHQiOiJoaSJ9fSwiZXhwcyI6eyJjaGVja291dF9leHAiOiJ0cmVhdG1lbnQifX0"
+
+func TestDevOverrideDecode(t *testing.T) {
+	ov := decodeDevOverrideCookie(extractDevOverrideCookie("a=1; se_ov_dev=" + fxDev + "; b=2"))
+	if ov == nil || !ov.gates["lobby_hold"] || ov.gates["old_nav"] || ov.exps["checkout_exp"] != "treatment" {
+		t.Fatalf("decode: %+v", ov)
+	}
+	if decodeDevOverrideCookie(extractDevOverrideCookie("se_ov_dev=!!!;")) != nil {
+		t.Fatal("malformed must be ignored")
+	}
+	if decodeDevOverrideCookie(extractDevOverrideCookie(fxDev)) == nil {
+		t.Fatal("bare value")
+	}
+}
+
+func TestDevOverridesGuards(t *testing.T) {
+	user := User{"user_id": "u1"}
+	hdr := "se_ov_dev=" + fxDev
+	read := func(eng *Engine) bool {
+		installGlobalEngine(eng, nil)
+		return NewClient(user).WithContext(WithRequestOverrides(context.Background(), hdr)).GetFlag("lobby_hold")
+	}
+	// Option off.
+	if read(overridesEngine(true)) {
+		t.Fatal("option off: ignored")
+	}
+	// Option on, non-production.
+	eng := overridesEngine(false)
+	eng.devOverrides = true
+	if !read(eng) {
+		t.Fatal("option on: honored")
+	}
+	// NewEngine in a production process: ignored.
+	t.Setenv("SHIPEASY_ENV", "production")
+	if e := NewEngine(Options{APIKey: "k", DevOverrides: true, IsNetworkEnabled: boolPtr(false)}); e.devOverrides {
+		t.Fatal("production: must ignore DevOverrides")
+	}
+	t.Setenv("SHIPEASY_ENV", "development")
+	if e := NewEngine(Options{APIKey: "k", DevOverrides: true, IsNetworkEnabled: boolPtr(false)}); !e.devOverrides {
+		t.Fatal("non-production: must honor DevOverrides")
+	}
+	if e := NewEngine(Options{APIKey: "k", IsNetworkEnabled: boolPtr(false)}); e.devOverrides {
+		t.Fatal("default off")
+	}
+}
+
+
+func TestSignedBeatsDevOverride(t *testing.T) {
+	// Dev says lobby_hold=true; signed cookie says old_nav=false, lobby_hold=true.
+	// Build a dev cookie that conflicts: old_nav=true (signed fixture says false).
+	devJSON := `{"gates":{"old_nav":true,"extra":true}}`
+	dev := base64.RawURLEncoding.EncodeToString([]byte(devJSON))
+	eng := overridesEngine(true)
+	eng.devOverrides = true
+	installGlobalEngine(eng, nil)
+	ctx := WithRequestOverrides(context.Background(), "se_ov="+fxCookie+"; se_ov_dev="+dev)
+	c := NewClient(User{"user_id": "u1"}).WithContext(ctx)
+	if c.GetFlag("old_nav") {
+		t.Fatal("signed (false) must beat dev (true)")
+	}
+	if d := c.GetFlagDetail("extra"); !d.Value || d.Reason != ReasonOverride {
+		t.Fatalf("dev-only name: %+v", d)
+	}
+	if !c.GetFlag("lobby_hold") {
+		t.Fatal("signed lobby_hold")
 	}
 }

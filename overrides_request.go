@@ -28,6 +28,32 @@ func (c *Engine) overridesFromCookie(cookieHeader string) *requestOverrides {
 	if c == nil {
 		return nil
 	}
+	// Precedence (per name): signed se_ov > unsigned se_ov_dev. The dev cookie is
+	// not even looked at unless DevOverrides is on in a non-production process.
+	var dev *requestOverrides
+	if c.devOverrides {
+		dev = decodeDevOverrideCookie(extractDevOverrideCookie(cookieHeader))
+	}
+	signed := c.signedOverrides(cookieHeader)
+	switch {
+	case signed == nil:
+		return dev
+	case dev == nil:
+		return signed
+	}
+	for k, v := range signed.gates {
+		dev.gates[k] = v
+	}
+	for k, v := range signed.configs {
+		dev.configs[k] = v
+	}
+	for k, v := range signed.exps {
+		dev.exps[k] = v
+	}
+	return dev
+}
+
+func (c *Engine) signedOverrides(cookieHeader string) *requestOverrides {
 	val := extractOverrideCookie(cookieHeader)
 	if val == "" {
 		return nil
