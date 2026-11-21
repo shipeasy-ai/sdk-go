@@ -318,3 +318,12 @@ func TestExtractUnrelatedSingleCookieIsNotBare(t *testing.T) {
 		t.Fatal("header fallback must apply beside an unrelated cookie")
 	}
 }
+
+func TestExtractDevUnrelatedSingleCookieIsNotBare(t *testing.T) {
+	if got := extractDevOverrideCookie("theme=a.b"); got != "" {
+		t.Fatalf("unrelated cookie treated as bare se_ov_dev: %q", got)
+	}
+	if got := extractDevOverrideCookie("theme=a; se_ov_dev=" + fxDev); got != fxDev {
+		t.Fatalf("header parse: %q", got)
+	}
+}

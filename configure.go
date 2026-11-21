@@ -312,4 +312,3 @@ func (c *Client) unitID() string {
 func (c *Client) Track(event string, props map[string]any) {
 	c.engine.Track(c.unitID(), event, props)
 }
-
