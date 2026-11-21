@@ -93,6 +93,10 @@ type Engine struct {
 	// (helper, setting): a tag helper runs on every render and one
 	// misconfiguration must not log a line per request. Guarded by exposureMu.
 	warnedTagSettings map[string]struct{}
+
+	// devOverrides is true only when Options.DevOverrides was set AND the process
+	// is non-production: the unsigned se_ov_dev cookie is then honored.
+	devOverrides bool
 }
 
 // Log levels for Options.LogLevel / Engine.logf, ordered
@@ -232,6 +236,12 @@ type Options struct {
 	// devtools tags carry. It never authenticates a read — it is only what the
 	// browser bundles use. NEVER put the server key here.
 	ClientKey string
+	// DevOverrides opts in to the UNSIGNED dev-only `se_ov_dev` URL override
+	// cookie (what the browser SDK writes for ?se_gate_x=true outside
+	// production). Honored only when true AND the process is non-production
+	// (isProductionEnv); set in a production process it is ignored with one
+	// warning. Default false.
+	DevOverrides bool
 	// Profile is the default i18n profile the SSR tags carry (e.g. "en:prod").
 	Profile string
 	// ProjectID is your Shipeasy project id (proj_...), read by DevtoolsScriptTag.
@@ -302,6 +312,13 @@ func NewEngine(opts Options) *Engine {
 		profile:           opts.Profile,
 		projectID:         opts.ProjectID,
 		cdnBaseURL:        opts.CDNBaseURL,
+	}
+	if opts.DevOverrides {
+		if prod {
+			c.logf(LogLevelWarn, "DevOverrides ignored: this process looks like production")
+		} else {
+			c.devOverrides = true
+		}
 	}
 	// Register this engine as the default backing the package-level see()
 	// funcs (last constructed wins — the server-SDK analog of shipeasy({key})).

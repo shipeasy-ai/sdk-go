@@ -24,6 +24,9 @@ type TestOptions struct {
 	Configs map[string]any
 	// Experiments are forced enrolments: name -> {Group, Params}.
 	Experiments map[string]ExperimentOverride
+	// DevOverrides honors the unsigned se_ov_dev cookie (tests are
+	// non-production by definition). See Options.DevOverrides.
+	DevOverrides bool
 }
 
 // Snapshot is the in-memory source for ConfigureForOffline: the parsed bodies of
@@ -88,6 +91,7 @@ func applyOverrides(eng *Engine, flags map[string]bool, configs map[string]any, 
 func ConfigureForTesting(opts TestOptions) *Engine {
 	eng := NewTestClient()
 	applyOverrides(eng, opts.Flags, opts.Configs, opts.Experiments)
+	eng.devOverrides = opts.DevOverrides
 	return installGlobalEngine(eng, opts.Attributes)
 }
 

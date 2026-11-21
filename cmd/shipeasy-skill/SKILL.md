@@ -112,6 +112,11 @@ normal evaluation (reason `ReasonOverride`). Fails closed (needs the project's
 override key served by Shipeasy, a valid unexpired signature); unsigned
 `?se_gate_` URL params alone are client-only.
 
+Local dev only: `Options{DevOverrides: true}` (default false) also honors the
+unsigned `se_ov_dev` cookie the browser SDK writes for `?se_gate_x=true`, and only
+in a non-production process (otherwise ignored with one warning). Signed `se_ov`
+wins per name.
+
 ## Error reporting — See()
 
 ```go

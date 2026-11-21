@@ -164,6 +164,27 @@ override key, the cookie signature is valid, and it has not expired. A client
 with no request context, or an unsigned `?se_gate_` URL parameter alone, is
 unaffected, so those stay client-only by design.
 
+### Local dev: `?se_gate_x=true` without signing in
+
+On a local, dev or test stack you can skip DevTools sign-in. The browser SDK
+mirrors the URL overrides into an unsigned `se_ov_dev` cookie outside
+production builds, and the server reads it when you opt in:
+
+```go
+shipeasy.Configure(shipeasy.Options{
+    APIKey:       os.Getenv("SHIPEASY_SERVER_KEY"),
+    DevOverrides: true, // default false
+})
+```
+
+Two guards apply: `DevOverrides` must be true AND the process must be
+non-production (`SHIPEASY_ENV`, `APP_ENV`, `GO_ENV` or `ENV`; `ConfigureForTesting`
+counts as non-production via `TestOptions.DevOverrides`). Set in a production
+process it is ignored with one warning, and the cookie is never even read. The
+cookie is unsigned, so it is **never active in production**. Per name the
+precedence is programmatic `Override*` > signed `se_ov` > `se_ov_dev` >
+normal evaluation.
+
 ## bucketBy
 
 An experiment can bucket on an attribute other than the individual (e.g.
