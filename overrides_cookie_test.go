@@ -243,7 +243,6 @@ func TestDevOverridesGuards(t *testing.T) {
 	}
 }
 
-
 func TestSignedBeatsDevOverride(t *testing.T) {
 	// Dev says lobby_hold=true; signed cookie says old_nav=false, lobby_hold=true.
 	// Build a dev cookie that conflicts: old_nav=true (signed fixture says false).
@@ -305,5 +304,17 @@ func TestOverridesHeaderFallback(t *testing.T) {
 	h.ServeHTTP(httptest.NewRecorder(), req)
 	if !got {
 		t.Fatal("middleware should read X-Shipeasy-Overrides")
+	}
+}
+
+func TestExtractUnrelatedSingleCookieIsNotBare(t *testing.T) {
+	if got := extractOverrideCookie("theme=a.b"); got != "" {
+		t.Fatalf("unrelated cookie treated as bare se_ov: %q", got)
+	}
+	// So the X-Shipeasy-Overrides fallback still applies.
+	installGlobalEngine(overridesEngine(true), nil)
+	ctx := WithRequestOverrides(context.Background(), "theme=a.b", "se_ov="+fxCookie)
+	if !NewClient(User{"user_id": "u1"}).WithContext(ctx).GetFlag("lobby_hold") {
+		t.Fatal("header fallback must apply beside an unrelated cookie")
 	}
 }

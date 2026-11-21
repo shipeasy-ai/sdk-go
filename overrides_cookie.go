@@ -120,7 +120,9 @@ func extractOverrideCookie(input string) string {
 	if input == "" {
 		return ""
 	}
-	if !strings.Contains(input, ";") && !strings.Contains(input, "se_ov=") {
+	// A bare value has neither '=' nor ';' (base64url carries no padding);
+	// anything else is a Cookie header, e.g. an unrelated `theme=a.b`.
+	if !strings.ContainsAny(input, ";=") {
 		if strings.Contains(input, ".") {
 			return input
 		}
