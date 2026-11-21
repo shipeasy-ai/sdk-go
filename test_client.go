@@ -75,3 +75,17 @@ func (c *Engine) ClearOverrides() {
 	c.configOverrides = nil
 	c.expOverrides = nil
 }
+
+func (c *Engine) hasFlagOverride(name string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	_, ok := c.flagOverrides[name]
+	return ok
+}
+
+func (c *Engine) hasConfigOverride(name string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	_, ok := c.configOverrides[name]
+	return ok
+}

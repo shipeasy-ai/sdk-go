@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.26.0 — 2026-11-21
+
+### Signed DevTools overrides reach server-side reads (shipeasy #714)
+
+A signed-in DevTools overlay mirrors its overrides (gates, kill switches,
+configs, experiment groups, incl. `?se_gate_x=true`) into the signed `se_ov`
+cookie. `Middleware` now verifies it once per request (HMAC-SHA256 against the
+project override key served as `overrideKey` / `overrideKeyId` in `/sdk/flags`)
+and stores the result on the request context. New `Client.WithContext(ctx)` and
+`NewClientContext(ctx, user)` bind a client to that context, and
+`WithRequestOverrides(ctx, cookieHeader)` scopes it manually without the
+middleware. Precedence: `Override*` > signed cookie > normal evaluation
+(`ReasonOverride`). Fail closed: no served key, bad signature or an expired
+cookie means no overrides. Clients without a request context are unchanged.
+
 ## 0.25.0 — 2026-11-19
 
 ### `See()` reports carry the browser's `X-SE-Correlation` token (shipeasy #704)

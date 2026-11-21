@@ -57,6 +57,11 @@ the network.
 
 ## On-the-spot overrides
 
+(These are for tests. Signed DevTools overrides from a real browser session reach
+server reads through `Middleware` + `Client.WithContext` instead; programmatic
+`Override*` helpers win over them. See
+[Advanced](advanced.md#devtools-overrides-on-server-reads).)
+
 The package-level `Override*` helpers force a single value on top of whatever the
 current configuration set up. They win over everything until `ClearOverrides`:
 

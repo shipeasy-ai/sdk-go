@@ -130,7 +130,29 @@ type Client struct {
 	// computed once in NewClient via the configured Attributes transform.
 	attributes User
 	engine     *Engine
+	// ctx carries the request-scoped signed DevTools overrides (set by
+	// Middleware / WithRequestOverrides). nil => no request scope.
+	ctx context.Context
 }
+
+// WithContext returns a copy of the Client bound to ctx, so its reads honor the
+// signed DevTools overrides Middleware (or WithRequestOverrides) put on that
+// context. Precedence: programmatic Override* > signed cookie > normal
+// evaluation. The receiver is unchanged; the copy is as cheap as NewClient.
+//
+//	c := shipeasy.NewClient(user).WithContext(r.Context())
+func (c *Client) WithContext(ctx context.Context) *Client {
+	cp := *c
+	cp.ctx = ctx
+	return &cp
+}
+
+// NewClientContext is NewClient(user).WithContext(ctx).
+func NewClientContext(ctx context.Context, user any) *Client {
+	return NewClient(user).WithContext(ctx)
+}
+
+func (c *Client) reqOverrides() *requestOverrides { return requestOverridesFrom(c.ctx) }
 
 // NewClient binds a user to the configured Engine. The configured Attributes
 // transform is applied to user ONCE here and the resulting attribute map is
@@ -156,7 +178,7 @@ func NewClient(user any) *Client {
 // unexpected panic is recovered, logged, and false is returned.
 func (c *Client) GetFlag(name string) (result bool) {
 	defer recoverRead(c.engine, "Client.GetFlag", &result)
-	return c.engine.GetFlag(name, c.attributes)
+	return c.GetFlagDetail(name).Value
 }
 
 // GetFlagOr evaluates a gate for the bound user, returning def only when the
@@ -166,7 +188,11 @@ func (c *Client) GetFlag(name string) (result bool) {
 func (c *Client) GetFlagOr(name string, def bool) (result bool) {
 	result = def
 	defer recoverRead(c.engine, "Client.GetFlagOr", &result)
-	return c.engine.GetFlagOr(name, c.attributes, def)
+	d := c.GetFlagDetail(name)
+	if d.Reason == ReasonClientNotReady || d.Reason == ReasonFlagNotFound {
+		return def
+	}
+	return d.Value
 }
 
 // GetFlagDetail evaluates a gate for the bound user and reports why. Never panics
@@ -175,6 +201,11 @@ func (c *Client) GetFlagOr(name string, def bool) (result bool) {
 func (c *Client) GetFlagDetail(name string) (result FlagDetail) {
 	result = FlagDetail{Value: false, Reason: ReasonClientNotReady}
 	defer recoverRead(c.engine, "Client.GetFlagDetail", &result)
+	if ov := c.reqOverrides(); ov != nil && !c.engine.hasFlagOverride(name) {
+		if v, ok := ov.gates[name]; ok {
+			return FlagDetail{Value: v, Reason: ReasonOverride}
+		}
+	}
 	return c.engine.GetFlagDetail(name, c.attributes)
 }
 
@@ -185,6 +216,11 @@ func (c *Client) GetFlagDetail(name string) (result FlagDetail) {
 func (c *Client) GetConfig(name string) (value any, ok bool) {
 	value, ok = nil, false
 	defer recoverRead(c.engine, "Client.GetConfig", &value)
+	if ov := c.reqOverrides(); ov != nil && !c.engine.hasConfigOverride(name) {
+		if v, ok := ov.configs[name]; ok {
+			return v, true
+		}
+	}
 	return c.engine.GetConfig(name)
 }
 
@@ -194,7 +230,10 @@ func (c *Client) GetConfig(name string) (value any, ok bool) {
 func (c *Client) GetConfigOr(name string, def any) (result any) {
 	result = def
 	defer recoverRead(c.engine, "Client.GetConfigOr", &result)
-	return c.engine.GetConfigOr(name, def)
+	if v, ok := c.GetConfig(name); ok {
+		return v
+	}
+	return def
 }
 
 // Universe returns a reusable handle bound to universe name for the bound user:
@@ -220,7 +259,11 @@ type BoundUniverseHandle struct {
 // not-enrolled Assignment is returned.
 func (h *BoundUniverseHandle) Assign() (result Assignment) {
 	defer recoverRead(h.client.engine, "Client.Universe.Assign", &result)
-	return h.client.engine.assignUniverse(h.name, h.client.attributes)
+	var cookieExps map[string]string
+	if ov := h.client.reqOverrides(); ov != nil {
+		cookieExps = ov.exps
+	}
+	return h.client.engine.assignUniverseWith(h.name, h.client.attributes, cookieExps)
 }
 
 // GetKillswitch reports whether a kill switch is engaged. Kill switches are not
@@ -233,6 +276,13 @@ func (c *Client) GetKillswitch(name string, switchKey ...string) (result bool) {
 	key := ""
 	if len(switchKey) > 0 {
 		key = switchKey[0]
+	}
+	// The signed-cookie gates namespace covers kill switches too, but only for
+	// the whole-switch read; per-switch-key reads are left alone.
+	if ov := c.reqOverrides(); ov != nil && key == "" {
+		if v, ok := ov.gates[name]; ok {
+			return v
+		}
 	}
 	return c.engine.GetKillswitch(name, key)
 }
