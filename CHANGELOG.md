@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.28.0 — 2026-11-21
+
+### Overrides reach APIs on sibling subdomains (shipeasy #714)
+
+`Middleware` (and `WithRequestOverrides`, via a new optional third argument)
+also reads the `X-Shipeasy-Overrides` header (`OverridesHeader`), cookie-header
+syntax carrying `se_ov` / `se_ov_dev`, which the browser SDK's
+`getOverrideHeaders()` builds. Per cookie name the `Cookie` header wins and the
+header fills in when absent; the same signature verification and
+DevOverrides / non-production guards apply. Backward compatible.
+
 ## 0.27.0 — 2026-11-21
 
 ### Dev-only `se_ov_dev` URL override cookie (shipeasy #714)

@@ -22,6 +22,12 @@ import (
 	"time"
 )
 
+// OverridesHeader is the request header carrying the override cookies in
+// cookie-header syntax (`se_ov=<v>; se_ov_dev=<v>`), for APIs that cannot see
+// the browser's cookies (a sibling subdomain, token auth). The browser SDK's
+// getOverrideHeaders() builds it.
+const OverridesHeader = "X-Shipeasy-Overrides"
+
 // OverrideCookieName is the cookie carrying the signed override payload.
 const OverrideCookieName = "se_ov"
 

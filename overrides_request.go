@@ -24,7 +24,11 @@ type requestOverridesKey struct{}
 
 // overridesFromCookie verifies the Cookie header (or bare se_ov value) against
 // the engine's override key. Returns nil when overrides are disabled or invalid.
-func (c *Engine) overridesFromCookie(cookieHeader string) *requestOverrides {
+//
+// overridesHeader is the X-Shipeasy-Overrides value (cookie-header syntax): for
+// each cookie name the Cookie header wins and the custom header fills in when
+// the cookie is absent. The same verification and guards apply to both.
+func (c *Engine) overridesFromCookie(cookieHeader, overridesHeader string) *requestOverrides {
 	if c == nil {
 		return nil
 	}
@@ -32,9 +36,13 @@ func (c *Engine) overridesFromCookie(cookieHeader string) *requestOverrides {
 	// not even looked at unless DevOverrides is on in a non-production process.
 	var dev *requestOverrides
 	if c.devOverrides {
-		dev = decodeDevOverrideCookie(extractDevOverrideCookie(cookieHeader))
+		v := extractDevOverrideCookie(cookieHeader)
+		if v == "" {
+			v = extractDevOverrideCookie(overridesHeader)
+		}
+		dev = decodeDevOverrideCookie(v)
 	}
-	signed := c.signedOverrides(cookieHeader)
+	signed := c.signedOverrides(cookieHeader, overridesHeader)
 	switch {
 	case signed == nil:
 		return dev
@@ -53,8 +61,11 @@ func (c *Engine) overridesFromCookie(cookieHeader string) *requestOverrides {
 	return dev
 }
 
-func (c *Engine) signedOverrides(cookieHeader string) *requestOverrides {
+func (c *Engine) signedOverrides(cookieHeader, overridesHeader string) *requestOverrides {
 	val := extractOverrideCookie(cookieHeader)
+	if val == "" {
+		val = extractOverrideCookie(overridesHeader)
+	}
 	if val == "" {
 		return nil
 	}
@@ -80,10 +91,21 @@ func (c *Engine) signedOverrides(cookieHeader string) *requestOverrides {
 //
 //	ctx := shipeasy.WithRequestOverrides(r.Context(), r.Header.Get("Cookie"))
 //	c := shipeasy.NewClient(user).WithContext(ctx)
-func WithRequestOverrides(ctx context.Context, cookieHeader string) context.Context {
+//
+// For APIs on a different subdomain than the frontend (or token-auth APIs), pass
+// the X-Shipeasy-Overrides header value as the optional third argument; the
+// Cookie header wins per cookie name and the header fills in when absent:
+//
+//	ctx := shipeasy.WithRequestOverrides(r.Context(), r.Header.Get("Cookie"),
+//	    r.Header.Get(shipeasy.OverridesHeader))
+func WithRequestOverrides(ctx context.Context, cookieHeader string, overridesHeader ...string) context.Context {
+	hdr := ""
+	if len(overridesHeader) > 0 {
+		hdr = overridesHeader[0]
+	}
 	var ov *requestOverrides
 	if eng := resolveGlobalEngine(); eng != nil {
-		ov = eng.overridesFromCookie(cookieHeader)
+		ov = eng.overridesFromCookie(cookieHeader, hdr)
 	}
 	return context.WithValue(ctx, requestOverridesKey{}, ov)
 }

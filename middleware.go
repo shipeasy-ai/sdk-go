@@ -161,8 +161,8 @@ func Middleware(next http.Handler) http.Handler {
 		ctx = withCorrelationID(ctx, r.Header.Get(CorrelationHeader))
 		// Verify the signed DevTools override cookie ONCE per request; Clients
 		// bound with WithContext(r.Context()) then apply it on every read.
-		if ck := r.Header.Get("Cookie"); ck != "" {
-			ctx = WithRequestOverrides(ctx, ck)
+		if ck, oh := r.Header.Get("Cookie"), r.Header.Get(OverridesHeader); ck != "" || oh != "" {
+			ctx = WithRequestOverrides(ctx, ck, oh)
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

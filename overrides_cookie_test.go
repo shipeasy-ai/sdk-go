@@ -264,3 +264,46 @@ func TestSignedBeatsDevOverride(t *testing.T) {
 		t.Fatal("signed lobby_hold")
 	}
 }
+
+func TestOverridesHeaderFallback(t *testing.T) {
+	user := User{"user_id": "u1"}
+	eng := overridesEngine(true)
+	installGlobalEngine(eng, nil)
+	flag := func(ctx context.Context, n string) bool {
+		return NewClient(user).WithContext(ctx).GetFlag(n)
+	}
+	// Header-only signed cookie applies.
+	ctx := WithRequestOverrides(context.Background(), "", "se_ov="+fxCookie)
+	if !flag(ctx, "lobby_hold") {
+		t.Fatal("header-only signed cookie should apply")
+	}
+	// Tampered header cookie is rejected.
+	if flag(WithRequestOverrides(context.Background(), "", "se_ov="+fxTamper), "lobby_hold") {
+		t.Fatal("tampered header must be rejected")
+	}
+	// Header-only dev cookie: guard off => ignored; guard on => applied.
+	hdr := "se_ov_dev=" + fxDev
+	if flag(WithRequestOverrides(context.Background(), "", hdr), "lobby_hold") {
+		t.Fatal("dev header ignored without DevOverrides")
+	}
+	eng.devOverrides = true
+	if !flag(WithRequestOverrides(context.Background(), "", hdr), "lobby_hold") {
+		t.Fatal("dev header should apply under the guards")
+	}
+	// Cookie beats header for the same name: dev cookie says lobby_hold=false.
+	devOff := base64.RawURLEncoding.EncodeToString([]byte(`{"gates":{"lobby_hold":false}}`))
+	if flag(WithRequestOverrides(context.Background(), "se_ov_dev="+devOff, hdr), "lobby_hold") {
+		t.Fatal("Cookie header must win over X-Shipeasy-Overrides")
+	}
+	// Middleware reads the header.
+	var got bool
+	h := Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = NewClient(user).WithContext(r.Context()).GetFlag("lobby_hold")
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("x-shipeasy-overrides", "se_ov="+fxCookie)
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	if !got {
+		t.Fatal("middleware should read X-Shipeasy-Overrides")
+	}
+}
