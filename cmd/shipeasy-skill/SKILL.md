@@ -101,6 +101,17 @@ http.ListenAndServe(":8080", shipeasy.Middleware(mux)) // mints __se_anon_id coo
 c := shipeasy.NewClient(shipeasy.User{"anonymous_id": shipeasy.AnonID(r)})
 ```
 
+## DevTools overrides on server reads
+
+`shipeasy.Middleware` verifies the signed `se_ov` DevTools cookie once per
+request. Bind the client to the request context so overrides apply:
+`shipeasy.NewClient(user).WithContext(r.Context())`. Without the middleware use
+`ctx := shipeasy.WithRequestOverrides(r.Context(), r.Header.Get("Cookie"))` and
+`shipeasy.NewClientContext(ctx, user)`. Precedence: `Override*` > signed cookie >
+normal evaluation (reason `ReasonOverride`). Fails closed (needs the project's
+override key served by Shipeasy, a valid unexpired signature); unsigned
+`?se_gate_` URL params alone are client-only.
+
 ## Error reporting — See()
 
 ```go

@@ -86,6 +86,14 @@ func (h *UniverseHandle) Assign(user User) (result Assignment) {
 
 // assignUniverse is the engine-level universe assignment. See UniverseHandle.Assign.
 func (c *Engine) assignUniverse(universeName string, user User) Assignment {
+	return c.assignUniverseWith(universeName, user, nil)
+}
+
+// assignUniverseWith is assignUniverse plus signed-cookie experiment overrides
+// (experiment name -> group). Programmatic OverrideExperiment wins over a cookie
+// override for the same experiment; a cookie group resolves its params from the
+// blob's variant when it exists, else carries none.
+func (c *Engine) assignUniverseWith(universeName string, user User, cookieExps map[string]string) Assignment {
 	c.telemetry.emit("experiment", universeName)
 
 	c.mu.RLock()
@@ -93,8 +101,21 @@ func (c *Engine) assignUniverse(universeName string, user User) Assignment {
 	exps := c.exps
 	sticky := c.stickyStore
 	var expOv map[string]ExperimentResult
-	if len(c.expOverrides) > 0 {
-		expOv = make(map[string]ExperimentResult, len(c.expOverrides))
+	if len(c.expOverrides) > 0 || len(cookieExps) > 0 {
+		expOv = make(map[string]ExperimentResult, len(c.expOverrides)+len(cookieExps))
+		for k, g := range cookieExps {
+			r := ExperimentResult{InExperiment: true, Group: g}
+			if exps != nil {
+				if e, ok := exps.Experiments[k]; ok {
+					for _, grp := range e.Groups {
+						if grp.Name == g {
+							r.Params = grp.Params
+						}
+					}
+				}
+			}
+			expOv[k] = r
+		}
 		for k, v := range c.expOverrides {
 			expOv[k] = v
 		}

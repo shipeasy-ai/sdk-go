@@ -139,6 +139,11 @@ type flagsBlob struct {
 	// top-level value/enabled plus an optional per-key switches map (the
 	// dashboard "switches" feature). Read via Engine.GetKillswitch.
 	Killswitches map[string]killswitch `json:"killswitches"`
+	// OverrideKey / OverrideKeyID are the project's verify key for the signed
+	// DevTools override cookie (se_ov), served only when the platform secret is
+	// set. Absent => signed overrides are never trusted (fail closed).
+	OverrideKey   string `json:"overrideKey"`
+	OverrideKeyID string `json:"overrideKeyId"`
 }
 
 // killswitch is one entry in the flags blob's killswitches map. Value (or the

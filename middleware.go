@@ -144,6 +144,13 @@ func requestIsHTTPS(r *http.Request) bool {
 // shipeasy.SeeContext(r.Context(), err) carries `correlation_id`. The value
 // lives on the request's context, so it ends with the request — nothing leaks
 // into the next one.
+//
+// Finally it verifies the signed DevTools override cookie (se_ov) once and
+// stores the verified overrides on the request context. Bind a Client to it
+// with NewClient(user).WithContext(r.Context()) and a signed-in DevTools user's
+// gate / config / kill-switch / experiment overrides reach server-side reads.
+// Fail closed: no served override key, a bad signature or an expired cookie
+// means no overrides.
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, minted := ReadOrMintAnonID(r)
@@ -152,6 +159,11 @@ func Middleware(next http.Handler) http.Handler {
 		}
 		ctx := context.WithValue(r.Context(), anonIDKey{}, id)
 		ctx = withCorrelationID(ctx, r.Header.Get(CorrelationHeader))
+		// Verify the signed DevTools override cookie ONCE per request; Clients
+		// bound with WithContext(r.Context()) then apply it on every read.
+		if ck := r.Header.Get("Cookie"); ck != "" {
+			ctx = WithRequestOverrides(ctx, ck)
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

@@ -92,6 +92,11 @@ bucketing unit when the visitor is logged out:
 user := shipeasy.User{"anonymous_id": shipeasy.AnonID(r)} // or {"user_id": ...} once logged in
 ```
 
+`Middleware` also verifies the signed DevTools override cookie once per request;
+bind clients with `shipeasy.NewClient(user).WithContext(r.Context())` so a
+signed-in DevTools user's overrides reach server-side reads (see
+[Advanced](advanced.md#devtools-overrides-on-server-reads)).
+
 The framework sections below show exactly where `Middleware` and `Configure` go.
 
 ## net/http

@@ -130,6 +130,40 @@ shipeasy.Configure(shipeasy.Options{
 })
 ```
 
+## DevTools overrides on server reads
+
+A signed-in Shipeasy DevTools overlay mirrors its overrides (gates, kill switches,
+configs, experiment groups, including the `?se_gate_<name>=true` URL state) into
+a signed `se_ov` cookie. The browser sends it on every same-origin request, so
+`shipeasy.Middleware` can verify it once per request and put the result on the
+request context. Bind your `Client` to that context:
+
+```go
+http.ListenAndServe(":8080", shipeasy.Middleware(mux))
+
+// in a handler
+c := shipeasy.NewClient(user).WithContext(r.Context())
+c.GetFlag("new_checkout") // honors the signed-in DevTools override
+```
+
+Without `Middleware`, scope it yourself with `WithRequestOverrides`:
+
+```go
+ctx := shipeasy.WithRequestOverrides(r.Context(), r.Header.Get("Cookie"))
+c := shipeasy.NewClientContext(ctx, user)
+```
+
+Precedence on a read is programmatic `Override*` > signed cookie > normal
+evaluation. A cookie override reports `shipeasy.ReasonOverride`. The cookie's
+`gates` map covers kill switches too (whole-switch `GetKillswitch` reads only),
+`configs` replace `GetConfig` values, and `exps` force a universe assignment to
+that group.
+
+It fails closed: overrides apply only when Shipeasy serves your project's
+override key, the cookie signature is valid, and it has not expired. A client
+with no request context, or an unsigned `?se_gate_` URL parameter alone, is
+unaffected, so those stay client-only by design.
+
 ## bucketBy
 
 An experiment can bucket on an attribute other than the individual (e.g.
