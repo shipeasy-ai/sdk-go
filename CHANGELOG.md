@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.27.0 — 2026-11-21
+
+### Dev-only `se_ov_dev` URL override cookie (shipeasy #714)
+
+Opt-in local-dev addition: `Options.DevOverrides` (and `TestOptions.DevOverrides`)
+also honors the unsigned `se_ov_dev` cookie the browser SDK writes for
+`?se_gate_x=true`, only in a non-production process (else ignored with one
+warning, and the cookie is not read). Signed `se_ov` wins per name.
+
 ## 0.26.0 — 2026-11-21
 
 ### Signed DevTools overrides reach server-side reads (shipeasy #714)
@@ -14,11 +23,6 @@ and stores the result on the request context. New `Client.WithContext(ctx)` and
 middleware. Precedence: `Override*` > signed cookie > normal evaluation
 (`ReasonOverride`). Fail closed: no served key, bad signature or an expired
 cookie means no overrides. Clients without a request context are unchanged.
-
-Opt-in local-dev addition: `Options.DevOverrides` (and `TestOptions.DevOverrides`)
-also honors the unsigned `se_ov_dev` cookie the browser SDK writes for
-`?se_gate_x=true`, only in a non-production process (else ignored with one
-warning, and the cookie is not read). Signed `se_ov` wins per name.
 
 ## 0.25.0 — 2026-11-19
 
